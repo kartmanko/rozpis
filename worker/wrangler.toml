@@ -1,0 +1,18 @@
+name = "rozpis-worker"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# KV namespace pre uložený stav rozpisu.
+# Vytvor: `wrangler kv namespace create ROZPIS_KV`
+# a id nižšie nahraď hodnotou, ktorú príkaz vypíše.
+[[kv_namespaces]]
+binding = "ROZPIS_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Tajomstvá (nedávaj ich sem do repozitára!) nastav príkazmi:
+#   wrangler secret put ADMIN_PASSWORD
+#   wrangler secret put ANTHROPIC_API_KEY
+#
+# Voliteľné premenné (nie sú tajné, môžu byť tu):
+[vars]
+ALLOWED_ORIGIN = "*"
