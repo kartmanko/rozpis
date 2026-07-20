@@ -13,7 +13,6 @@ import AdminPanel from "./components/AdminPanel";
 import ScheduleTable from "./components/ScheduleTable";
 import BulkActionBar from "./components/BulkActionBar";
 import ThemeToggle from "./components/ThemeToggle";
-import { RefreshIcon, SelectIcon, UploadIcon, UsersIcon, ClockIcon, DownloadIcon, PrinterIcon, UserIcon } from "./components/icons";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [] }));
 const emptyCell = { off: false, shift: null, duel: false, note: "" };
@@ -299,39 +298,25 @@ export default function App() {
           <ThemeToggle theme={theme} onChange={setTheme} />
 
           {/* plný panel akcií na väčších obrazovkách */}
-          <div className="hidden sm:flex items-center gap-1.5 flex-wrap justify-end">
-            <button onClick={load} title="Obnoviť" className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-              <RefreshIcon />
-            </button>
+          <div className="hidden sm:flex items-center gap-2 flex-wrap justify-end">
+            <button onClick={load} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Obnoviť</button>
             {canEdit && (
-              <button onClick={toggleBulkMode} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 hover:bg-orange-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
-                <SelectIcon /> Hromadný výber
+              <button onClick={toggleBulkMode} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 hover:bg-orange-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
+                Hromadný výber
               </button>
             )}
             {canEdit && (
-              <button onClick={() => setPanel(panel === "import" ? null : "import")} className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">
-                <UploadIcon /> Import z chatu
-              </button>
+              <button onClick={() => setPanel(panel === "import" ? null : "import")} className="px-3 py-1.5 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">Import z chatu</button>
             )}
             {canEdit && (
-              <button onClick={() => setPanel(panel === "crew" ? null : "crew")} title="Kameramani" className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-                <UsersIcon />
-              </button>
+              <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Kameramani</button>
             )}
-            <button onClick={() => setPanel(panel === "log" ? null : "log")} title="História" className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-              <ClockIcon />
-            </button>
-            <button onClick={() => exportCSV(days, crew, cellOf)} title="Export CSV" className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-              <DownloadIcon />
-            </button>
-            <button onClick={() => exportXLSX(days, crew, cellOf)} title="Export XLSX" className="px-2.5 h-9 flex items-center gap-1 text-xs font-semibold rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-              <DownloadIcon /> XLSX
-            </button>
-            <button onClick={printSchedule} title="Tlač / PDF" className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
-              <PrinterIcon />
-            </button>
-            <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
-              <UserIcon /> {isAdmin ? "Admin" : "Prihlásenie"}
+            <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">História</button>
+            <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">CSV</button>
+            <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">XLSX</button>
+            <button onClick={printSchedule} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Tlač / PDF</button>
+            <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
+              {isAdmin ? "Admin" : "Prihlásenie"}
             </button>
           </div>
 
@@ -350,24 +335,24 @@ export default function App() {
         {menuOpen && (
           <div className="sm:hidden mt-2.5 grid grid-cols-2 gap-1.5">
             {canEdit && (
-              <button onClick={() => { setPanel(panel === "import" ? null : "import"); setMenuOpen(false); }} className="col-span-2 flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors"><UploadIcon /> Import z chatu</button>
+              <button onClick={() => { setPanel(panel === "import" ? null : "import"); setMenuOpen(false); }} className="col-span-2 px-3 py-2 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">Import z chatu</button>
             )}
             {canEdit && (
-              <button onClick={() => { toggleBulkMode(); setMenuOpen(false); }} className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}><SelectIcon /> Hromadný výber</button>
+              <button onClick={() => { toggleBulkMode(); setMenuOpen(false); }} className={`px-3 py-2 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}>Hromadný výber</button>
             )}
-            <button onClick={() => { load(); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><RefreshIcon /> Obnoviť</button>
+            <button onClick={() => { load(); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Obnoviť</button>
             {canEdit && (
-              <button onClick={() => { setPanel(panel === "crew" ? null : "crew"); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><UsersIcon /> Kameramani</button>
+              <button onClick={() => { setPanel(panel === "crew" ? null : "crew"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Kameramani</button>
             )}
-            <button onClick={() => { setPanel(panel === "log" ? null : "log"); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><ClockIcon /> História</button>
-            <button onClick={() => { exportCSV(days, crew, cellOf); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><DownloadIcon /> CSV</button>
-            <button onClick={() => { exportXLSX(days, crew, cellOf); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><DownloadIcon /> XLSX</button>
-            <button onClick={() => { printSchedule(); setMenuOpen(false); }} className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800"><PrinterIcon /> Tlač / PDF</button>
+            <button onClick={() => { setPanel(panel === "log" ? null : "log"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">História</button>
+            <button onClick={() => { exportCSV(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">CSV</button>
+            <button onClick={() => { exportXLSX(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">XLSX</button>
+            <button onClick={() => { printSchedule(); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Tlač / PDF</button>
             <button
               onClick={() => { setPanel(panel === "admin" ? null : "admin"); setMenuOpen(false); }}
-              className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}
+              className={`col-span-2 px-3 py-2 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}
             >
-              <UserIcon /> {isAdmin ? "Admin" : "Prihlásenie"}
+              {isAdmin ? "Admin" : "Prihlásenie"}
             </button>
           </div>
         )}
@@ -425,7 +410,7 @@ export default function App() {
       )}
 
       {/* rezerva miesta dole, nech fixný panel (editor bunky / hromadný výber) neprekrýva posledné riadky tabuľky */}
-      <div className="pt-3" style={{ paddingBottom: bulkMode ? 210 : sel && canEdit ? 190 : 0 }}>
+      <div style={{ paddingBottom: bulkMode ? 210 : sel && canEdit ? 190 : 0 }}>
         <ScheduleTable
           days={filteredDays}
           crew={crew}
