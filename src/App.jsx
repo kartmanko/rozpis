@@ -47,6 +47,7 @@ export default function App() {
   const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin"
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; }
@@ -285,37 +286,76 @@ export default function App() {
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors">
       <div className="h-1 bg-gradient-to-r from-amber-600 via-orange-500 to-amber-600 no-print" />
       <header className="sticky top-0 z-30 bg-white/90 dark:bg-stone-950/90 backdrop-blur border-b border-stone-200 dark:border-stone-800 px-3 py-2.5 no-print shadow-sm">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div>
-            <div className="text-sm font-bold tracking-wide">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="text-base sm:text-sm font-extrabold tracking-tight truncate">
               <span className="text-orange-600 dark:text-orange-500">FARMA 18</span>
-              <span className="text-stone-400 dark:text-stone-500"> — </span>
-              rozpis kameramanov
+              <span className="hidden sm:inline text-stone-400 dark:text-stone-500"> — rozpis kameramanov</span>
             </div>
-            <div className="text-xs text-stone-500 dark:text-stone-400 font-mono">30.7. – 17.10.2026 · cyklus 5 dní od 5.8.</div>
+            <div className="text-[11px] sm:text-xs text-stone-500 dark:text-stone-400 font-mono truncate">30.7. – 17.10.2026 · cyklus 5 dní od 5.8.</div>
           </div>
           <div className="grow" />
           <ThemeToggle theme={theme} onChange={setTheme} />
-          <button onClick={load} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Obnoviť</button>
-          {canEdit && (
-            <button onClick={toggleBulkMode} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 hover:bg-orange-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
-              Hromadný výber
+
+          {/* plný panel akcií na väčších obrazovkách */}
+          <div className="hidden sm:flex items-center gap-2 flex-wrap justify-end">
+            <button onClick={load} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Obnoviť</button>
+            {canEdit && (
+              <button onClick={toggleBulkMode} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 hover:bg-orange-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
+                Hromadný výber
+              </button>
+            )}
+            {canEdit && (
+              <button onClick={() => setPanel(panel === "import" ? null : "import")} className="px-3 py-1.5 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">Import z chatu</button>
+            )}
+            {canEdit && (
+              <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Kameramani</button>
+            )}
+            <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">História</button>
+            <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">CSV</button>
+            <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">XLSX</button>
+            <button onClick={printSchedule} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Tlač / PDF</button>
+            <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
+              {isAdmin ? "Admin" : "Prihlásenie"}
             </button>
-          )}
-          {canEdit && (
-            <button onClick={() => setPanel(panel === "import" ? null : "import")} className="px-3 py-1.5 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">Import z chatu</button>
-          )}
-          {canEdit && (
-            <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Kameramani</button>
-          )}
-          <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">História</button>
-          <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">CSV</button>
-          <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">XLSX</button>
-          <button onClick={printSchedule} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Tlač / PDF</button>
-          <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"}`}>
-            {isAdmin ? "Admin" : "Prihlásenie"}
+          </div>
+
+          {/* hamburger menu na mobile */}
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Menu"
+            className={`sm:hidden w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${menuOpen ? "bg-orange-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              {menuOpen ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
           </button>
         </div>
+
+        {menuOpen && (
+          <div className="sm:hidden mt-2.5 grid grid-cols-2 gap-1.5">
+            {canEdit && (
+              <button onClick={() => { setPanel(panel === "import" ? null : "import"); setMenuOpen(false); }} className="col-span-2 px-3 py-2 text-sm rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition-colors">Import z chatu</button>
+            )}
+            {canEdit && (
+              <button onClick={() => { toggleBulkMode(); setMenuOpen(false); }} className={`px-3 py-2 text-sm rounded-lg transition-colors ${bulkMode ? "bg-orange-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}>Hromadný výber</button>
+            )}
+            <button onClick={() => { load(); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Obnoviť</button>
+            {canEdit && (
+              <button onClick={() => { setPanel(panel === "crew" ? null : "crew"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Kameramani</button>
+            )}
+            <button onClick={() => { setPanel(panel === "log" ? null : "log"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">História</button>
+            <button onClick={() => { exportCSV(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">CSV</button>
+            <button onClick={() => { exportXLSX(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">XLSX</button>
+            <button onClick={() => { printSchedule(); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Tlač / PDF</button>
+            <button
+              onClick={() => { setPanel(panel === "admin" ? null : "admin"); setMenuOpen(false); }}
+              className={`col-span-2 px-3 py-2 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 text-white" : "bg-stone-100 dark:bg-stone-800"}`}
+            >
+              {isAdmin ? "Admin" : "Prihlásenie"}
+            </button>
+          </div>
+        )}
         <div className="flex gap-3 mt-2 text-xs text-stone-500 dark:text-stone-400 flex-wrap items-center">
           <Legend className="bg-red-700 dark:bg-red-800" label="nemôže" />
           <Legend className="bg-emerald-600 dark:bg-emerald-700" label="točí" />
