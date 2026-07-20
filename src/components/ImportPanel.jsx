@@ -81,44 +81,44 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
   const unresolved = rows.filter((r) => !r.crewId).length;
 
   return (
-    <div className="bg-slate-900 border-b border-slate-800 p-3 no-print">
+    <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 no-print">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-sm font-semibold">Import screenshotov z WhatsApp</div>
         <div className="grow" />
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-slate-500 dark:text-slate-400">
           Predvolený mesiac:{" "}
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100">
+          <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-900 dark:text-slate-100">
             <option value={8}>August</option>
             <option value={9}>September</option>
             <option value={10}>Október</option>
           </select>
         </label>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-100 text-sm">Zavrieť</button>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 text-sm">Zavrieť</button>
       </div>
 
       <input type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && analyze(e.target.files)} className="text-sm" />
-      {busy && <div className="text-sm text-sky-400 mt-2">Čítam screenshoty…</div>}
-      {err && <div className="text-sm text-red-400 mt-2">{err}</div>}
+      {busy && <div className="text-sm text-sky-600 dark:text-sky-400 mt-2">Čítam screenshoty…</div>}
+      {err && <div className="text-sm text-red-600 dark:text-red-400 mt-2">{err}</div>}
 
       {rows.length > 0 && (
         <div className="mt-3 space-y-2">
-          {unresolved > 0 && <div className="text-xs text-amber-400">Pri {unresolved} správach neviem, o koho ide — vyber kameramana.</div>}
+          {unresolved > 0 && <div className="text-xs text-amber-600 dark:text-amber-400">Pri {unresolved} správach neviem, o koho ide — vyber kameramana.</div>}
           {rows.map((r, i) => (
-            <div key={i} className="flex gap-2 items-start flex-wrap border border-slate-800 rounded p-2">
+            <div key={i} className="flex gap-2 items-start flex-wrap border border-slate-200 dark:border-slate-800 rounded-lg p-2">
               <div className="text-xs grow min-w-48">
                 <div className="font-semibold flex items-center gap-1 flex-wrap">
-                  {r.sender} {r.phone && <span className="text-slate-400 font-mono">{r.phone}</span>}
-                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-amber-700 text-amber-100 text-[10px] font-bold uppercase">Oprava</span>}
+                  {r.sender} {r.phone && <span className="text-slate-500 dark:text-slate-400 font-mono">{r.phone}</span>}
+                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-amber-600 dark:bg-amber-700 text-white text-[10px] font-bold uppercase">Oprava</span>}
                 </div>
-                <div className="text-slate-400">{r.text}</div>
-                {r.noRestrictions && <div className="font-mono text-slate-300">bez obmedzení</div>}
+                <div className="text-slate-500 dark:text-slate-400">{r.text}</div>
+                {r.noRestrictions && <div className="font-mono text-slate-600 dark:text-slate-300">bez obmedzení</div>}
                 {(r.unavailable || []).length > 0 && (
-                  <div className="font-mono text-red-300">
+                  <div className="font-mono text-red-600 dark:text-red-300">
                     nemôže: {r.unavailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
                   </div>
                 )}
                 {(r.correctedAvailable || []).length > 0 && (
-                  <div className="font-mono text-emerald-300">
+                  <div className="font-mono text-emerald-600 dark:text-emerald-300">
                     znova môže (oprava): {r.correctedAvailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
                   </div>
                 )}
@@ -126,15 +126,15 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
               <select
                 value={r.crewId}
                 onChange={(e) => setRows((rs) => rs.map((x, j) => (j === i ? { ...x, crewId: e.target.value } : x)))}
-                className={`px-2 py-1 rounded text-sm border ${r.crewId ? "bg-slate-800 border-slate-700" : "bg-amber-900 border-amber-600"}`}
+                className={`px-2 py-1 rounded-lg text-sm border ${r.crewId ? "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700" : "bg-amber-100 dark:bg-amber-900 border-amber-400 dark:border-amber-600"}`}
               >
                 <option value="">— kto to je? —</option>
                 {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-slate-400 text-sm px-2">Preskočiť</button>
+              <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-slate-500 dark:text-slate-400 text-sm px-2">Preskočiť</button>
             </div>
           ))}
-          <button onClick={apply} className="px-3 py-1 rounded text-sm bg-emerald-700 hover:bg-emerald-600">Zapísať do tabuľky</button>
+          <button onClick={apply} className="px-3 py-1.5 rounded-lg text-sm bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">Zapísať do tabuľky</button>
         </div>
       )}
     </div>

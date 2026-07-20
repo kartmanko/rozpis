@@ -12,9 +12,15 @@ import ImportPanel from "./components/ImportPanel";
 import AdminPanel from "./components/AdminPanel";
 import ScheduleTable from "./components/ScheduleTable";
 import BulkActionBar from "./components/BulkActionBar";
+import ThemeToggle from "./components/ThemeToggle";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [] }));
 const emptyCell = { off: false, shift: null, duel: false, note: "" };
+
+/* --- svetlá / tmavá / auto téma --- */
+const THEME_KEY = "rozpis_theme"; // "light" | "dark" | "system"
+const prefersDark = () => window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+const applyTheme = (t) => document.documentElement.classList.toggle("dark", t === "dark" || (t === "system" && prefersDark()));
 
 export default function App() {
   const days = useMemo(buildDays, []);
@@ -41,6 +47,19 @@ export default function App() {
   const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin"
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
+
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; }
+  });
+  useEffect(() => {
+    applyTheme(theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* ticho */ }
+    if (theme !== "system" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme("system");
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [theme]);
 
   /* --- hromadný výber --- */
   const [bulkMode, setBulkMode] = useState(false);
@@ -263,49 +282,50 @@ export default function App() {
   const canEdit = isAdmin;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-30 bg-slate-950 border-b border-slate-800 px-3 py-2 no-print">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-950/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-3 py-2.5 no-print shadow-sm">
         <div className="flex items-center gap-2 flex-wrap">
           <div>
-            <div className="text-sm font-semibold tracking-wide">FARMA 18 — rozpis kameramanov</div>
-            <div className="text-xs text-slate-400 font-mono">30.7. – 17.10.2026 · cyklus 5 dní od 5.8.</div>
+            <div className="text-sm font-bold tracking-wide">FARMA 18 — rozpis kameramanov</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">30.7. – 17.10.2026 · cyklus 5 dní od 5.8.</div>
           </div>
           <div className="grow" />
-          <button onClick={load} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">Obnoviť</button>
+          <ThemeToggle theme={theme} onChange={setTheme} />
+          <button onClick={load} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">Obnoviť</button>
           {canEdit && (
-            <button onClick={toggleBulkMode} className={`px-3 py-1 text-sm rounded ${bulkMode ? "bg-sky-600 hover:bg-sky-500" : "bg-slate-800 hover:bg-slate-700"}`}>
+            <button onClick={toggleBulkMode} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${bulkMode ? "bg-sky-600 hover:bg-sky-500 text-white" : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"}`}>
               Hromadný výber
             </button>
           )}
           {canEdit && (
-            <button onClick={() => setPanel(panel === "import" ? null : "import")} className="px-3 py-1 text-sm rounded bg-sky-700 hover:bg-sky-600">Import z chatu</button>
+            <button onClick={() => setPanel(panel === "import" ? null : "import")} className="px-3 py-1.5 text-sm rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors">Import z chatu</button>
           )}
           {canEdit && (
-            <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">Kameramani</button>
+            <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">Kameramani</button>
           )}
-          <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">História</button>
-          <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">CSV</button>
-          <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">XLSX</button>
-          <button onClick={printSchedule} className="px-3 py-1 text-sm rounded bg-slate-800 hover:bg-slate-700">Tlač / PDF</button>
-          <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`px-3 py-1 text-sm rounded ${isAdmin ? "bg-emerald-700 hover:bg-emerald-600" : "bg-slate-800 hover:bg-slate-700"}`}>
+          <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">História</button>
+          <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">CSV</button>
+          <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">XLSX</button>
+          <button onClick={printSchedule} className="px-3 py-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors">Tlač / PDF</button>
+          <button onClick={() => setPanel(panel === "admin" ? null : "admin")} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${isAdmin ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"}`}>
             {isAdmin ? "Admin" : "Prihlásenie"}
           </button>
         </div>
-        <div className="flex gap-3 mt-2 text-xs text-slate-400 flex-wrap items-center">
-          <Legend className="bg-red-800" label="nemôže" />
-          <Legend className="bg-emerald-700" label="točí" />
-          <Legend className="bg-pink-700" label="Duel" />
+        <div className="flex gap-3 mt-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap items-center">
+          <Legend className="bg-red-700 dark:bg-red-800" label="nemôže" />
+          <Legend className="bg-emerald-600 dark:bg-emerald-700" label="točí" />
+          <Legend className="bg-pink-600 dark:bg-pink-700" label="Duel" />
           <Legend className="bg-amber-500" label="5. deň cyklu" />
           <Legend className="bg-violet-600" label="skúšky" />
-          {conflictsCount > 0 && <span className="text-red-400">⚠ {conflictsCount}× smena v deň, keď kameraman nemôže</span>}
-          {saving && <span className="text-sky-400">Ukladám…</span>}
-          {status && <span className="text-slate-300">{status}</span>}
-          {connError && <span className="text-amber-400">{connError}</span>}
+          {conflictsCount > 0 && <span className="text-red-600 dark:text-red-400 font-medium">⚠ {conflictsCount}× smena v deň, keď kameraman nemôže</span>}
+          {saving && <span className="text-sky-600 dark:text-sky-400">Ukladám…</span>}
+          {status && <span className="text-slate-600 dark:text-slate-300">{status}</span>}
+          {connError && <span className="text-amber-600 dark:text-amber-400">{connError}</span>}
         </div>
         <div className="flex gap-1 mt-2 flex-wrap no-print">
           <button
             onClick={() => setActiveMonth(null)}
-            className={`px-2 py-0.5 text-xs rounded ${activeMonth === null ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+            className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${activeMonth === null ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}
           >
             Všetky
           </button>
@@ -313,16 +333,16 @@ export default function App() {
             <button
               key={m}
               onClick={() => setActiveMonth(m)}
-              className={`px-2 py-0.5 text-xs rounded ${activeMonth === m ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}
+              className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${activeMonth === m ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}
             >
               {SK_MONTHS[m]}
             </button>
           ))}
         </div>
         {conflict && (
-          <div className="mt-2 p-2 rounded bg-red-900/40 border border-red-700 text-xs text-red-200 flex items-center gap-2 flex-wrap">
+          <div className="mt-2 p-2 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-xs text-red-700 dark:text-red-200 flex items-center gap-2 flex-wrap">
             Niekto iný medzitým zmenil dáta na serveri — tvoje posledné zmeny sa neuložili.
-            <button onClick={resolveConflict} className="px-2 py-0.5 rounded bg-red-700 hover:bg-red-600 text-white">Načítať znova (zahodí moje neuložené zmeny)</button>
+            <button onClick={resolveConflict} className="px-2 py-0.5 rounded-lg bg-red-600 hover:bg-red-500 text-white">Načítať znova (zahodí moje neuložené zmeny)</button>
           </div>
         )}
       </header>
@@ -337,7 +357,7 @@ export default function App() {
       )}
 
       {bulkMode && canEdit && (
-        <div className="px-3 py-2 bg-sky-950 border-b border-sky-800 text-xs text-sky-200 no-print">
+        <div className="px-3 py-2 bg-sky-50 dark:bg-sky-950 border-b border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-200 no-print">
           {selectedKeys.size === 0
             ? "Hromadný výber je zapnutý — klikaj na bunky v tabuľke, ktoré chceš označiť (označené dostanú modrý rámik a ✓)."
             : `Označených ${selectedKeys.size} ${selectedKeys.size === 1 ? "bunka" : "buniek"} — vyber akciu dole, alebo pokračuj v označovaní ďalších.`}

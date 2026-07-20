@@ -1,0 +1,17 @@
+{
+  "name": "FARMA 18 — rozpis kameramanov",
+  "short_name": "FARMA 18",
+  "description": "Rozpis kameramanov pre FARMA 18",
+  "start_url": "/rozpis/",
+  "scope": "/rozpis/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
