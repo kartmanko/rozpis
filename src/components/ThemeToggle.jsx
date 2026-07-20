@@ -32,7 +32,7 @@ const OPTIONS = [
 
 export default function ThemeToggle({ theme, onChange }) {
   return (
-    <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 gap-0.5 no-print">
+    <div className="flex items-center rounded-lg bg-stone-100 dark:bg-stone-800 p-0.5 gap-0.5 no-print">
       {OPTIONS.map((o) => (
         <button
           key={o.id}
@@ -40,8 +40,8 @@ export default function ThemeToggle({ theme, onChange }) {
           onClick={() => onChange(o.id)}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             theme === o.id
-              ? "bg-white dark:bg-slate-600 text-sky-600 dark:text-sky-300 shadow-sm"
-              : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100"
+              ? "bg-white dark:bg-stone-600 text-orange-600 dark:text-orange-400 shadow-sm"
+              : "text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-100"
           }`}
         >
           {o.icon}
