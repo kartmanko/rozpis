@@ -62,8 +62,16 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
         setCell(iso, r.crewId, { off: true });
         applied++;
       });
+      (r.correctedAvailable || []).forEach((iso) => {
+        setCell(iso, r.crewId, { off: false });
+        applied++;
+      });
       const name = crew.find((c) => c.id === r.crewId)?.name || r.sender;
-      addLog(r.noRestrictions ? `Import: ${name} — bez obmedzení` : `Import: ${name} — ${(r.unavailable || []).length} dní nemôže`);
+      const bits = [];
+      if (r.noRestrictions) bits.push("bez obmedzení");
+      if ((r.unavailable || []).length) bits.push(`${r.unavailable.length} dní nemôže`);
+      if ((r.correctedAvailable || []).length) bits.push(`${r.correctedAvailable.length} dní opravených (znova môže)`);
+      addLog(`Import: ${name} — ${bits.length ? bits.join(", ") : "žiadna zmena"}`);
     });
     setRows([]);
     setStatus(`Import hotový, zapísaných ${applied} dní.`);
@@ -98,11 +106,22 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
           {rows.map((r, i) => (
             <div key={i} className="flex gap-2 items-start flex-wrap border border-slate-800 rounded p-2">
               <div className="text-xs grow min-w-48">
-                <div className="font-semibold">{r.sender} {r.phone && <span className="text-slate-400 font-mono">{r.phone}</span>}</div>
-                <div className="text-slate-400">{r.text}</div>
-                <div className="font-mono text-slate-300">
-                  {r.noRestrictions ? "bez obmedzení" : (r.unavailable || []).map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
+                <div className="font-semibold flex items-center gap-1 flex-wrap">
+                  {r.sender} {r.phone && <span className="text-slate-400 font-mono">{r.phone}</span>}
+                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-amber-700 text-amber-100 text-[10px] font-bold uppercase">Oprava</span>}
                 </div>
+                <div className="text-slate-400">{r.text}</div>
+                {r.noRestrictions && <div className="font-mono text-slate-300">bez obmedzení</div>}
+                {(r.unavailable || []).length > 0 && (
+                  <div className="font-mono text-red-300">
+                    nemôže: {r.unavailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
+                  </div>
+                )}
+                {(r.correctedAvailable || []).length > 0 && (
+                  <div className="font-mono text-emerald-300">
+                    znova môže (oprava): {r.correctedAvailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
+                  </div>
+                )}
               </div>
               <select
                 value={r.crewId}

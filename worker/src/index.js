@@ -79,14 +79,17 @@ async function handlePostData(request, env) {
   return json({ version: next.version }, 200, env);
 }
 
-const VISION_PROMPT_TEMPLATE = (monthNum, monthName) => `Čítaš screenshot zo skupinového WhatsApp chatu kameramanov. Ľudia píšu, ktoré dni NEMÔŽU pracovať.
+const VISION_PROMPT_TEMPLATE = (monthNum, monthName) => `Čítaš screenshot zo skupinového WhatsApp chatu kameramanov. Ľudia píšu, ktoré dni NEMÔŽU pracovať, prípadne neskôr opravujú/menia dátumy, ktoré predtým nahlásili.
 Vráť IBA JSON pole, bez markdownu a bez vysvetlenia:
-[{"sender":"meno ako je v chate","phone":"telefón ak je vidieť, inak \\"\\"","text":"text správy","unavailable":["2026-08-15"],"noRestrictions":false}]
+[{"sender":"meno ako je v chate","phone":"telefón ak je vidieť, inak \\"\\"","text":"text správy","unavailable":["2026-08-15"],"correctedAvailable":["2026-08-16"],"noRestrictions":false,"isCorrection":false}]
 Pravidlá:
 - Rok je 2026. Ak správa neuvádza mesiac, použi mesiac ${monthNum} (${monthName}).
 - Rozsahy rozbaľ na jednotlivé dni: "27-30.8." = 27.,28.,29.,30. august; "od 12 až do 21" = 12 až 21.
 - Zoznam typu "6.7.8.9.11." sú jednotlivé dni.
-- Ak píše, že je bez obmedzení alebo že zatiaľ môže, daj noRestrictions:true a unavailable prázdne.
+- "unavailable" = dni, ktoré má správa nahlásiť ako NOVÉ nemôže (pridať).
+- "correctedAvailable" = dni, ktoré správa spätne RUŠÍ/OPRAVUJE — teda predtým boli nahlásené ako nemôže, ale autor teraz píše, že predsa len MÔŽE / že to bol omyl / že sa mu dátum zmenil a pôvodný dátum už neplatí. Sem daj presne tie dátumy, ktoré sa majú znova sprístupniť (odznačiť "nemôže"). Ak správa iba pridáva nové "nemôže" dni bez rušenia starších, nechaj toto pole prázdne.
+- Nastav isCorrection:true vždy, keď správa obsahuje slová/zmysel ako "oprava", "omyl", "zle som napísal", "predsa len môžem", "zmena", "opravujem sa", alebo keď correctedAvailable nie je prázdne.
+- Ak píše, že je bez obmedzení alebo že zatiaľ môže (bez toho, že by to bola oprava predchádzajúcej správy), daj noRestrictions:true a unavailable prázdne.
 - Ignoruj správy, ktoré neriešia dostupnosť (pozdravy, emoji, organizačné oznamy).
 - Meno uveď presne tak, ako je v screenshote, aj keď je orezané.`;
 

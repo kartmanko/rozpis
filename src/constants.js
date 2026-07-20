@@ -4,7 +4,10 @@ export const END = "2026-10-17";
 export const CYCLE_START = "2026-08-05";
 export const CYCLE_LEN = 5;
 export const REHEARSALS = ["2026-07-30", "2026-07-31", "2026-08-01"];
-export const SHIFTS = ["A", "B", "C", "Duel"];
+// Bežné smeny (výber je exkluzívny — jedna z troch).
+// "Duel" je samostatný nezávislý príznak na bunke (cell.duel), dá sa kombinovať
+// s ktoroukoľvek smenou aj bez nej — typicky sa používa v piaty deň cyklu.
+export const DAY_SHIFTS = ["A", "B", "C"];
 
 export const DEFAULT_NAMES = [
   "Daniel Lörincz", "Denis Hazlinger", "Ondrej Zlatohlávek", "Ondrej Šedivý",

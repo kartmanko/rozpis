@@ -1,4 +1,4 @@
-import { SHIFTS } from "../constants";
+import { DAY_SHIFTS } from "../constants";
 
 export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate }) {
   const person = crew.find((c) => c.id === sel.crewId);
@@ -10,12 +10,14 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
         <button onClick={onClose} className="text-slate-400 hover:text-slate-100 px-2">Zavrieť</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-2">
-        <button onClick={() => onSet({ off: false, shift: null })} className="px-3 py-1 rounded text-sm bg-slate-800 hover:bg-slate-700">Vyčistiť</button>
+        <button onClick={() => onSet({ off: false, shift: null, duel: false })} className="px-3 py-1 rounded text-sm bg-slate-800 hover:bg-slate-700">Vyčistiť</button>
         <button onClick={() => onSet({ off: !cell.off })} className={`px-3 py-1 rounded text-sm ${cell.off ? "bg-red-700" : "bg-slate-800 hover:bg-slate-700"}`}>Nemôže</button>
-        {SHIFTS.map((s) => (
+        {DAY_SHIFTS.map((s) => (
           <button key={s} onClick={() => onSet({ shift: cell.shift === s ? null : s })} className={`px-3 py-1 rounded text-sm ${cell.shift === s ? "bg-emerald-600" : "bg-slate-800 hover:bg-slate-700"}`}>{s}</button>
         ))}
+        <button onClick={() => onSet({ duel: !cell.duel })} className={`px-3 py-1 rounded text-sm ${cell.duel ? "bg-pink-600" : "bg-slate-800 hover:bg-slate-700"}`}>Duel</button>
       </div>
+      <div className="text-xs text-slate-500 -mt-1 mb-2">Duel sa dá zapnúť samostatne alebo spolu so smenou A/B/C (typicky piaty deň cyklu).</div>
       <div className="flex flex-wrap gap-2 items-center">
         <input
           value={cell.note}

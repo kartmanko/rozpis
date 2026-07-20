@@ -14,6 +14,7 @@ function buildRows(days, crew, cellOf) {
         const parts = [];
         if (x.off) parts.push("NEMÔŽE");
         if (x.shift) parts.push(x.shift);
+        if (x.duel) parts.push("Duel");
         if (x.note) parts.push(x.note);
         return parts.join(" ");
       }),

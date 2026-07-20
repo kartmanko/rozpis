@@ -2,7 +2,7 @@ import React from "react";
 import { cycleInfo } from "../dateUtils";
 import { REHEARSALS, SK_MONTHS } from "../constants";
 
-export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, onCellClick, onMoveCrew }) {
+export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew }) {
   return (
     <div className="overflow-auto">
       <table className="border-collapse text-sm">
@@ -12,7 +12,7 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, onCe
             {crew.map((c, i) => (
               <th key={c.id} className="bg-slate-900 border border-slate-800 px-1 py-1 w-24 min-w-24 align-bottom">
                 <div className="text-xs leading-tight break-words">{c.name}</div>
-                {canEdit && (
+                {canEdit && !bulkMode && (
                   <div className="flex justify-center gap-1 mt-1 no-print">
                     <button onClick={() => onMoveCrew(i, -1)} className="text-slate-500 hover:text-slate-200 px-1">◀</button>
                     <button onClick={() => onMoveCrew(i, 1)} className="text-slate-500 hover:text-slate-200 px-1">▶</button>
@@ -43,15 +43,19 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, onCe
                   </td>
                   {crew.map((c) => {
                     const x = cellOf(d.iso, c.id);
-                    const bad = x.off && x.shift;
-                    const bg = x.shift ? "bg-emerald-700" : x.off ? "bg-red-800" : ci.fifth ? "bg-slate-800" : "bg-slate-900";
+                    const bad = x.off && (x.shift || x.duel);
+                    const bg = x.off ? "bg-red-800" : x.shift ? "bg-emerald-700" : x.duel ? "bg-pink-700" : ci.fifth ? "bg-slate-800" : "bg-slate-900";
+                    const k = d.iso + "|" + c.id;
+                    const selected = bulkMode && selectedKeys?.has(k);
                     return (
                       <td
                         key={c.id}
-                        onClick={() => canEdit && onCellClick({ iso: d.iso, crewId: c.id })}
-                        className={`border border-slate-800 px-1 py-1 text-center ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${bg} ${bad ? "ring-2 ring-red-400" : ""}`}
+                        onClick={(e) => canEdit && onCellClick({ iso: d.iso, crewId: c.id }, e)}
+                        className={`relative border border-slate-800 px-1 py-1 text-center ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${bg} ${bad ? "ring-2 ring-inset ring-red-400" : ""} ${selected ? "ring-4 ring-inset ring-sky-400 bg-sky-900/50" : ""}`}
                       >
-                        <span className="text-xs font-semibold">{x.shift || (x.off ? "×" : "")}</span>
+                        {selected && <span className="absolute top-0 right-0 text-[10px] leading-none bg-sky-400 text-slate-950 font-bold px-0.5 rounded-bl">✓</span>}
+                        <span className="text-xs font-semibold">{x.shift || (x.off && !x.duel ? "×" : "")}</span>
+                        {x.duel && <span className="block text-[10px] font-bold leading-tight text-pink-100">Duel</span>}
                         {x.note && <span className="block text-xs text-slate-200 truncate">{x.note}</span>}
                       </td>
                     );
