@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
-import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, THEME_STORAGE_KEY, ROLES } from "./constants";
+import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
 import { fetchData, saveData, ApiError, getApiBase } from "./api";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
@@ -92,6 +92,18 @@ export default function App() {
   const [activeRole, setActiveRole] = useState("kamera");
   const filteredCrew = useMemo(() => crew.filter((c) => (c.role || "kamera") === activeRole), [crew, activeRole]);
 
+  /* --- výber mesiaca — filtruje zobrazené dni v tabuľke, nie exporty (tie idú vždy za celú sezónu) --- */
+  const [activeMonth, setActiveMonth] = useState(null); // null = všetky mesiace
+  const monthsInRange = useMemo(() => {
+    const seen = [];
+    for (const d of days) if (!seen.includes(d.month)) seen.push(d.month);
+    return seen;
+  }, [days]);
+  const filteredDays = useMemo(
+    () => (activeMonth === null ? days : days.filter((d) => d.month === activeMonth)),
+    [days, activeMonth]
+  );
+
   /* --- automatická kontrola novej verzie appky (na otvorenie, návrat do popredia, aj periodicky) --- */
   useEffect(() => {
     let cancelled = false;
@@ -163,8 +175,12 @@ export default function App() {
   }, [loaded]);
 
   const scrollToToday = () => {
-    const el = document.querySelector(`[data-iso="${todayIso()}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // ak je aktívny filter na iný mesiac, najprv ho zrušíme, nech je dnešný deň vôbec v DOM
+    setActiveMonth(null);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-iso="${todayIso()}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   };
 
   /* --- auto-refresh (iba viewer, alebo admin bez rozpracovaných zmien) --- */
@@ -438,6 +454,17 @@ export default function App() {
 
             <button title="NAD časy" onClick={() => togglePanel("nad")} className={`w-8 h-8 rounded-md border flex items-center justify-center ${panel === "nad" ? "border-f-accent bg-f-accent text-f-ink" : "border-f-border bg-f-panel text-f-muted hover:text-f-text"}`}>⏱</button>
 
+            {/* Hromadný výber — iba pre admina, preto samostatná ikonka len keď je canEdit */}
+            {canEdit && (
+              <button
+                title="Hromadný výber"
+                onClick={toggleBulkMode}
+                className={`w-8 h-8 rounded-md border flex items-center justify-center ${bulkMode ? "border-f-accent bg-f-accent text-f-ink" : "border-f-border bg-f-panel text-f-muted hover:text-f-text"}`}
+              >
+                ☑
+              </button>
+            )}
+
             <button title="Viac" onClick={() => setMenu(menu === "more" ? null : "more")} className="relative w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">
               ⋯
               {pendingHook.length > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
@@ -460,7 +487,6 @@ export default function App() {
                 {canEdit && (
                   <>
                     <div className="border-t border-f-hair my-1" />
-                    <button onClick={() => { toggleBulkMode(); setMenu(null); }} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">{bulkMode ? "Ukončiť hromadný výber" : "Hromadný výber"}</button>
                     <button onClick={() => togglePanel("import")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import z chatu</button>
                     <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>
                     <button onClick={() => togglePanel("hook")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
@@ -482,6 +508,25 @@ export default function App() {
               className={`flex-1 text-center py-2 text-[11px] font-bold uppercase tracking-widest transition-colors ${activeRole === r.key ? "bg-f-text text-f-bg" : "text-f-faint hover:text-f-muted"}`}
             >
               {r.label}
+            </button>
+          ))}
+        </div>
+
+        {/* výber mesiaca — filtruje zobrazené dni v tabuľke (exporty idú vždy za celú sezónu) */}
+        <div className="flex gap-1.5 mt-2 overflow-x-auto">
+          <button
+            onClick={() => setActiveMonth(null)}
+            className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${activeMonth === null ? "bg-f-accent text-f-ink" : "bg-f-panel2 text-f-muted hover:text-f-text"}`}
+          >
+            Všetky
+          </button>
+          {monthsInRange.map((m) => (
+            <button
+              key={m}
+              onClick={() => setActiveMonth(m)}
+              className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${activeMonth === m ? "bg-f-accent text-f-ink" : "bg-f-panel2 text-f-muted hover:text-f-text"}`}
+            >
+              {SK_MONTHS[m]}
             </button>
           ))}
         </div>
@@ -526,7 +571,7 @@ export default function App() {
       {/* rezerva miesta dole, nech fixný panel (editor bunky / hromadný výber) neprekrýva posledné riadky tabuľky */}
       <div style={{ paddingBottom: bulkMode ? 210 : sel && canEdit ? 190 : 0 }}>
         <ScheduleTable
-          days={days}
+          days={filteredDays}
           crew={filteredCrew}
           cells={cells}
           cellOf={cellOf}
