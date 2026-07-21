@@ -88,6 +88,19 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [dayDetailIso, setDayDetailIso] = useState(null);
 
+  /* --- zatvorenie rozbaľovacieho menu (export / "⋯") kliknutím kamkoľvek mimo neho —
+     bez toho ostávalo menu "zaseknuté" otvorené, keď niekto klikol inde na stránke,
+     čo vyzeralo ako grafická chyba (menu prekrývalo obsah pod sebou). --- */
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!menu) return;
+    const onPointerDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [menu]);
+
   /* --- role štábu (kamera / réžia / logger) — jeden dátový model, tabuľka sa iba filtruje --- */
   const [activeRole, setActiveRole] = useState("kamera");
   const filteredCrew = useMemo(() => crew.filter((c) => (c.role || "kamera") === activeRole), [crew, activeRole]);
@@ -440,7 +453,7 @@ export default function App() {
           <button onClick={scrollToToday} className="text-[10px] font-bold uppercase tracking-wider text-f-muted2 hover:text-f-text border border-f-border rounded-md px-2 py-1">Dnes</button>
           <div className="grow" />
 
-          <div className="flex items-center gap-1 relative">
+          <div ref={menuRef} className="flex items-center gap-1 relative">
             <button title="Obnoviť" onClick={load} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">⟳</button>
 
             <button title="Export" onClick={() => setMenu(menu === "export" ? null : "export")} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">↓</button>
@@ -540,9 +553,15 @@ export default function App() {
           </div>
         )}
         {conflict && (
-          <div className="mt-2 p-2 rounded-lg bg-f-accent/10 border border-f-accent/50 text-xs text-f-text flex items-center gap-2 flex-wrap">
-            Niekto iný medzitým zmenil dáta na serveri — tvoje posledné zmeny sa neuložili.
-            <button onClick={resolveConflict} className="px-2 py-0.5 rounded-lg bg-f-accent text-f-ink font-bold">Načítať znova (zahodí moje neuložené zmeny)</button>
+          // Text a tlačidlo sú zámerne v dvoch samostatných blokoch pod sebou (nie v jednom
+          // flex riadku vedľa seba) — mix "holého" textu a tlačidla v jednom flex-wrap riadku
+          // sa v niektorých prehliadačoch (najmä mobilný Safari) vie zle prelomiť a tlačidlo
+          // sa prekryje s textom namiesto toho, aby spadlo na vlastný riadok.
+          <div className="mt-2 p-2 rounded-lg bg-f-accent/10 border border-f-accent/50 text-xs text-f-text">
+            <div>Niekto iný medzitým zmenil dáta na serveri — tvoje posledné zmeny sa neuložili.</div>
+            <button onClick={resolveConflict} className="mt-1.5 px-2 py-0.5 rounded-lg bg-f-accent text-f-ink font-bold">
+              Načítať znova (zahodí moje neuložené zmeny)
+            </button>
           </div>
         )}
       </header>
