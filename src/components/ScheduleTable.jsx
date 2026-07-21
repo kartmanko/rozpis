@@ -2,7 +2,7 @@ import React from "react";
 import { cycleInfo } from "../dateUtils";
 import { REHEARSALS, SK_MONTHS } from "../constants";
 
-export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew }) {
+export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew, nad, onDayClick }) {
   return (
     <div className="overflow-auto">
       <table className="border-collapse text-sm">
@@ -14,8 +14,8 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                 <div className="text-xs leading-tight break-words">{c.name}</div>
                 {canEdit && !bulkMode && (
                   <div className="flex justify-center gap-1 mt-1 no-print">
-                    <button onClick={() => onMoveCrew(i, -1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">◀</button>
-                    <button onClick={() => onMoveCrew(i, 1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">▶</button>
+                    <button onClick={() => onMoveCrew(c.id, -1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">◀</button>
+                    <button onClick={() => onMoveCrew(c.id, 1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">▶</button>
                   </div>
                 )}
               </th>
@@ -37,9 +37,17 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                   </tr>
                 )}
                 <tr className={ci.fifth ? "bg-amber-50 dark:bg-stone-800" : ""}>
-                  <td className={`sticky left-0 z-10 border border-stone-200 dark:border-stone-800 px-2 py-1 font-mono text-xs whitespace-nowrap ${reh ? "bg-violet-600 text-white" : ci.fifth ? "bg-amber-500 text-stone-950 font-bold" : d.weekend ? "bg-stone-100 text-stone-500 dark:bg-stone-900 dark:text-stone-400" : "bg-white dark:bg-stone-900"}`}>
+                  <td
+                    onClick={() => onDayClick && onDayClick(d.iso)}
+                    className={`sticky left-0 z-10 border border-stone-200 dark:border-stone-800 px-2 py-1 font-mono text-xs whitespace-nowrap ${onDayClick ? "cursor-pointer hover:brightness-95 dark:hover:brightness-125" : ""} ${reh ? "bg-violet-600 text-white" : ci.fifth ? "bg-amber-500 text-stone-950 font-bold" : d.weekend ? "bg-stone-100 text-stone-500 dark:bg-stone-900 dark:text-stone-400" : "bg-white dark:bg-stone-900"}`}
+                  >
                     {d.day}.{d.month + 1}. {d.dow}
                     <span className="ml-1 opacity-70">{reh ? "skúšky" : ci.n ? `c${ci.n}/${ci.pos}` : ""}</span>
+                    {nad?.[d.iso] && (nad[d.iso].depart || nad[d.iso].return) && (
+                      <span className="block text-[10px] opacity-80 leading-tight">
+                        NAD {nad[d.iso].depart || "—"}→{nad[d.iso].return || "—"}
+                      </span>
+                    )}
                   </td>
                   {crew.map((c) => {
                     const x = cellOf(d.iso, c.id);

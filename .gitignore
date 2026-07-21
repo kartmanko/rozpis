@@ -3,3 +3,5 @@ dist
 .env
 .wrangler
 worker/node_modules
+src/buildId.generated.js
+public/version.json

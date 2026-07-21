@@ -51,14 +51,14 @@ export async function fetchData() {
   return request("/data", { method: "GET" });
 }
 
-export async function saveData({ crew, cells, log, baseVersion, password }) {
+export async function saveData({ crew, cells, nad, log, baseVersion, password }) {
   return request("/data", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Admin-Password": password || "",
     },
-    body: JSON.stringify({ crew, cells, log, baseVersion }),
+    body: JSON.stringify({ crew, cells, nad, log, baseVersion }),
   });
 }
 

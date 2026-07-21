@@ -1,9 +1,9 @@
 import * as XLSX from "xlsx";
 import { cycleInfo } from "./dateUtils";
-import { REHEARSALS } from "./constants";
+import { REHEARSALS, ROLE_LABELS } from "./constants";
 
 function buildRows(days, crew, cellOf) {
-  const head = ["Dátum", "Deň", "Cyklus", ...crew.map((c) => c.name)];
+  const head = ["Dátum", "Deň", "Cyklus", ...crew.map((c) => `${c.name} (${ROLE_LABELS[c.role || "kamera"] || c.role})`)];
   const rows = days.map((d) => {
     const ci = cycleInfo(d.iso);
     const cyc = REHEARSALS.includes(d.iso) ? "skúšky" : ci.n ? `${ci.n}/${ci.pos}${ci.fifth ? " *" : ""}` : "";

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate } from "./dateUtils";
-import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, SK_MONTHS } from "./constants";
+import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, SK_MONTHS, ROLES } from "./constants";
 import { fetchData, saveData, ApiError, getApiBase } from "./api";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
+import { BUILD_ID } from "./buildId.generated";
 
 import Legend from "./components/Legend";
 import CellEditor from "./components/CellEditor";
@@ -13,9 +14,23 @@ import AdminPanel from "./components/AdminPanel";
 import ScheduleTable from "./components/ScheduleTable";
 import BulkActionBar from "./components/BulkActionBar";
 import ThemeToggle from "./components/ThemeToggle";
+import DayDetail from "./components/DayDetail";
+import WhatsAppQueuePanel from "./components/WhatsAppQueuePanel";
 
-const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [] }));
+const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 const emptyCell = { off: false, shift: null, duel: false, note: "" };
+
+/* --- kontrola verzie appky: keď je nasadený nový build, otvorená appka (napr. pripnutá na ploche iPhonu) sa sama obnoví --- */
+async function fetchLatestBuildId() {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}version.json?cb=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.buildId || null;
+  } catch {
+    return null;
+  }
+}
 
 /* --- svetlá / tmavá / auto téma --- */
 const THEME_KEY = "rozpis_theme"; // "light" | "dark" | "system"
@@ -27,6 +42,8 @@ export default function App() {
 
   const [crew, setCrew] = useState(defaultCrew);
   const [cells, setCells] = useState({}); // "iso|crewId" -> { off, shift, duel, note }
+  const [nad, setNadState] = useState({}); // "iso" -> { depart, return }
+  const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
 
@@ -48,6 +65,27 @@ export default function App() {
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dayDetailIso, setDayDetailIso] = useState(null);
+
+  /* --- role štábu (kamera / réžia / logger) — jeden dátový model, tabuľka sa iba filtruje --- */
+  const [activeRole, setActiveRole] = useState("kamera");
+  const filteredCrew = useMemo(() => crew.filter((c) => (c.role || "kamera") === activeRole), [crew, activeRole]);
+
+  /* --- automatická kontrola novej verzie appky (na otvorenie, návrat do popredia, aj periodicky) --- */
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const latest = await fetchLatestBuildId();
+      if (!cancelled && latest && latest !== BUILD_ID) {
+        window.location.reload();
+      }
+    };
+    check();
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const t = setInterval(check, 5 * 60 * 1000);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVisible); clearInterval(t); };
+  }, []);
 
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; }
@@ -91,6 +129,8 @@ export default function App() {
       const d = await fetchData();
       if (d.crew?.length) setCrew(d.crew);
       setCells(d.cells || {});
+      setNadState(d.nad || {});
+      setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
       setConnError("");
@@ -125,7 +165,7 @@ export default function App() {
     saveTimer.current = setTimeout(async () => {
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, log, baseVersion: version, password: adminPassword });
+        const res = await saveData({ crew, cells, nad, pendingHook, log, baseVersion: version, password: adminPassword });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -145,7 +185,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, log]);
+  }, [crew, cells, nad, pendingHook, log]);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -164,6 +204,57 @@ export default function App() {
     });
     setDirty(true);
   }, []);
+
+  const setNad = useCallback((iso, patch) => {
+    setNadState((prev) => {
+      const cur = prev[iso] || { depart: "", return: "" };
+      const next = { ...cur, ...patch };
+      const out = { ...prev };
+      if (!next.depart && !next.return) delete out[iso]; else out[iso] = next;
+      return out;
+    });
+    setDirty(true);
+  }, []);
+
+  /* --- potvrdenie/zahodenie nepriradenej správy z WhatsApp bridge --- */
+  const resolveHook = useCallback(
+    (entry, crewId) => {
+      if (crewId) {
+        setCells((prev) => {
+          const out = { ...prev };
+          (entry.unavailable || []).forEach((iso) => {
+            const k = iso + "|" + crewId;
+            const cur = out[k] || emptyCell;
+            out[k] = { ...cur, off: true };
+          });
+          (entry.correctedAvailable || []).forEach((iso) => {
+            const k = iso + "|" + crewId;
+            const cur = out[k] || emptyCell;
+            const next = { ...cur, off: false };
+            const empty = !next.off && !next.shift && !next.duel && !next.note;
+            if (empty) delete out[k]; else out[k] = next;
+          });
+          return out;
+        });
+        setCrew((cr) =>
+          cr.map((c) => {
+            if (c.id !== crewId) return c;
+            const add = [entry.phone, entry.sender].filter(Boolean).filter((a) => !c.aliases.includes(a));
+            return add.length ? { ...c, aliases: [...c.aliases, ...add] } : c;
+          })
+        );
+        const name = crew.find((c) => c.id === crewId)?.name || entry.sender;
+        const bits = [];
+        if (entry.noRestrictions) bits.push("bez obmedzení");
+        if ((entry.unavailable || []).length) bits.push(`${entry.unavailable.length} dní nemôže`);
+        if ((entry.correctedAvailable || []).length) bits.push(`${entry.correctedAvailable.length} dní opravených (znova môže)`);
+        addLog(`WhatsApp bridge (potvrdené): ${name} — ${bits.length ? bits.join(", ") : "žiadna zmena"}`);
+      }
+      setPendingHookState((prev) => prev.filter((e) => e.id !== entry.id));
+      setDirty(true);
+    },
+    [crew, addLog]
+  );
 
   /* --- hromadná úprava vybraných buniek --- */
   const applyBulk = useCallback(
@@ -196,13 +287,21 @@ export default function App() {
     addLog(`Výmena ${skDate(iso)}: ${nameOf(aId)} ↔ ${nameOf(bId)}`);
   };
 
-  /* --- poradie stĺpcov --- */
-  const moveCrew = (i, dir) => {
+  /* --- poradie stĺpcov ---
+     moveCrew berie id osoby (nie index) — potrebné, lebo tabuľka je filtrovaná podľa
+     aktívnej role a poradie sa musí posúvať v rámci rovnakej role vo full zozname crew. */
+  const moveCrew = (id, dir) => {
     wrappedSetCrew((c) => {
-      const j = i + dir;
-      if (j < 0 || j >= c.length) return c;
+      const role = c.find((x) => x.id === id)?.role || "kamera";
+      const sameRole = c.filter((x) => (x.role || "kamera") === role);
+      const idx = sameRole.findIndex((x) => x.id === id);
+      const targetIdx = idx + dir;
+      if (targetIdx < 0 || targetIdx >= sameRole.length) return c;
+      const targetId = sameRole[targetIdx].id;
+      const fullIdxA = c.findIndex((x) => x.id === id);
+      const fullIdxB = c.findIndex((x) => x.id === targetId);
       const out = c.slice();
-      [out[i], out[j]] = [out[j], out[i]];
+      [out[fullIdxA], out[fullIdxB]] = [out[fullIdxB], out[fullIdxA]];
       return out;
     });
   };
@@ -275,6 +374,15 @@ export default function App() {
     await load();
   };
 
+  const bulkAllowsDuel = useMemo(() => {
+    if (!selectedKeys.size) return true;
+    return [...selectedKeys].every((k) => {
+      const cid = k.split("|")[1];
+      const c = crew.find((cc) => cc.id === cid);
+      return (c?.role || "kamera") === "kamera";
+    });
+  }, [selectedKeys, crew]);
+
   const conflictsCount = useMemo(
     () => Object.entries(cells).filter(([, v]) => v.off && (v.shift || v.duel)).length,
     [cells]
@@ -312,6 +420,12 @@ export default function App() {
               <button onClick={() => setPanel(panel === "crew" ? null : "crew")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Kameramani</button>
             )}
             <button onClick={() => setPanel(panel === "log" ? null : "log")} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">História</button>
+            {canEdit && (
+              <button onClick={() => setPanel(panel === "hook" ? null : "hook")} className="relative px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">
+                WhatsApp fronta
+                {pendingHook.length > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-stone-950 text-[10px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
+              </button>
+            )}
             <button onClick={() => exportCSV(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">CSV</button>
             <button onClick={() => exportXLSX(days, crew, cellOf)} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">XLSX</button>
             <button onClick={printSchedule} className="px-3 py-1.5 text-sm rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 transition-colors">Tlač / PDF</button>
@@ -345,6 +459,11 @@ export default function App() {
               <button onClick={() => { setPanel(panel === "crew" ? null : "crew"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Kameramani</button>
             )}
             <button onClick={() => { setPanel(panel === "log" ? null : "log"); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">História</button>
+            {canEdit && (
+              <button onClick={() => { setPanel(panel === "hook" ? null : "hook"); setMenuOpen(false); }} className="relative px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">
+                WhatsApp fronta{pendingHook.length > 0 ? ` (${pendingHook.length})` : ""}
+              </button>
+            )}
             <button onClick={() => { exportCSV(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">CSV</button>
             <button onClick={() => { exportXLSX(days, crew, cellOf); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">XLSX</button>
             <button onClick={() => { printSchedule(); setMenuOpen(false); }} className="px-3 py-2 text-sm rounded-lg bg-stone-100 dark:bg-stone-800">Tlač / PDF</button>
@@ -366,6 +485,17 @@ export default function App() {
           {saving && <span className="text-orange-600 dark:text-orange-400">Ukladám…</span>}
           {status && <span className="text-stone-600 dark:text-stone-300">{status}</span>}
           {connError && <span className="text-amber-600 dark:text-amber-400">{connError}</span>}
+        </div>
+        <div className="flex gap-1 mt-2 flex-wrap no-print">
+          {ROLES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setActiveRole(r.key)}
+              className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-colors ${activeRole === r.key ? "bg-stone-800 text-white dark:bg-stone-100 dark:text-stone-900" : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700"}`}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
         <div className="flex gap-1 mt-2 flex-wrap no-print">
           <button
@@ -397,6 +527,9 @@ export default function App() {
       )}
       {panel === "crew" && canEdit && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
+      {panel === "hook" && canEdit && (
+        <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} onResolve={resolveHook} onClose={() => setPanel(null)} />
+      )}
       {panel === "import" && canEdit && (
         <ImportPanel crew={crew} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} adminPassword={adminPassword} />
       )}
@@ -413,7 +546,7 @@ export default function App() {
       <div style={{ paddingBottom: bulkMode ? 210 : sel && canEdit ? 190 : 0 }}>
         <ScheduleTable
           days={filteredDays}
-          crew={crew}
+          crew={filteredCrew}
           cells={cells}
           cellOf={cellOf}
           canEdit={canEdit}
@@ -421,8 +554,22 @@ export default function App() {
           selectedKeys={selectedKeys}
           onCellClick={handleCellClick}
           onMoveCrew={moveCrew}
+          nad={nad}
+          onDayClick={setDayDetailIso}
         />
       </div>
+
+      {dayDetailIso && (
+        <DayDetail
+          iso={dayDetailIso}
+          crew={crew}
+          cellOf={cellOf}
+          nad={nad}
+          canEdit={canEdit}
+          onSetNad={setNad}
+          onClose={() => setDayDetailIso(null)}
+        />
+      )}
 
       {sel && canEdit && !bulkMode && (
         <CellEditor
@@ -439,6 +586,7 @@ export default function App() {
       {bulkMode && canEdit && (
         <BulkActionBar
           count={selectedKeys.size}
+          allowDuel={bulkAllowsDuel}
           onApply={applyBulk}
           onClearSelection={() => { setSelectedKeys(new Set()); anchorRef.current = null; }}
           onExit={toggleBulkMode}
