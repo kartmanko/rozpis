@@ -5,10 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FARMA 18 — rozpis kameramanov</title>
     <meta name="description" content="Rozpis kameramanov pre FARMA 18" />
+    <script>
+      // Nastavenie témy pred vykreslením (bez "bliknutia" nesprávnou témou).
+      // Predvolená je tmavá ("Broadcast") — svetlá sa zapne iba ak si ju používateľ
+      // vyslovene zvolil, alebo zvolil "auto" a systém je nastavený na svetlý režim.
+      (function () {
+        try {
+          var t = localStorage.getItem("rozpis_theme") || "dark";
+          var light = t === "light" || (t === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+          if (light) {
+            document.documentElement.classList.add("light");
+            document.documentElement.style.colorScheme = "light";
+          } else {
+            document.documentElement.style.colorScheme = "dark";
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/png" href="https://d8j0ntlcm91z4.cloudfront.net/user_37iEesWSHZC3xkmRvCrIzsuTDdf/hf_20260720_220459_23ea6bd4-6481-4152-8193-66349c9362c9.png" />
     <link rel="apple-touch-icon" href="https://d8j0ntlcm91z4.cloudfront.net/user_37iEesWSHZC3xkmRvCrIzsuTDdf/hf_20260720_220459_23ea6bd4-6481-4152-8193-66349c9362c9.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#101010" />
+    <meta name="theme-color" content="#101010" id="theme-color-meta" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FARMA 18" />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
-import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, ROLES } from "./constants";
+import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, THEME_STORAGE_KEY, ROLES } from "./constants";
 import { fetchData, saveData, ApiError, getApiBase } from "./api";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
@@ -17,6 +17,7 @@ import BulkActionBar from "./components/BulkActionBar";
 import DayDetail from "./components/DayDetail";
 import NadPanel from "./components/NadPanel";
 import WhatsAppQueuePanel from "./components/WhatsAppQueuePanel";
+import ThemeToggle from "./components/ThemeToggle";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 const emptyCell = { off: false, shift: null, duel: false, note: "" };
@@ -56,6 +57,30 @@ export default function App() {
     try { return !!localStorage.getItem(ADMIN_STORAGE_KEY); } catch { return false; }
   });
   const [loginError, setLoginError] = useState("");
+
+  /* --- téma appky: svetlý / tmavý / auto (podľa systému) --- */
+  const [theme, setThemeState] = useState(() => {
+    try { return localStorage.getItem(THEME_STORAGE_KEY) || "dark"; } catch { return "dark"; }
+  });
+  const setTheme = (t) => {
+    try { localStorage.setItem(THEME_STORAGE_KEY, t); } catch { /* ticho */ }
+    setThemeState(t);
+  };
+  useEffect(() => {
+    const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+    const apply = () => {
+      const light = theme === "light" || (theme === "system" && mq?.matches);
+      document.documentElement.classList.toggle("light", light);
+      document.documentElement.style.colorScheme = light ? "light" : "dark";
+      const meta = document.getElementById("theme-color-meta");
+      if (meta) meta.setAttribute("content", light ? "#f7f7f5" : "#101010");
+    };
+    apply();
+    if (theme === "system" && mq) {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [theme]);
 
   const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
@@ -411,11 +436,11 @@ export default function App() {
               </div>
             )}
 
-            <button title="NAD časy" onClick={() => togglePanel("nad")} className={`w-8 h-8 rounded-md border flex items-center justify-center ${panel === "nad" ? "border-f-accent bg-f-accent text-f-bg" : "border-f-border bg-f-panel text-f-muted hover:text-f-text"}`}>⏱</button>
+            <button title="NAD časy" onClick={() => togglePanel("nad")} className={`w-8 h-8 rounded-md border flex items-center justify-center ${panel === "nad" ? "border-f-accent bg-f-accent text-f-ink" : "border-f-border bg-f-panel text-f-muted hover:text-f-text"}`}>⏱</button>
 
             <button title="Viac" onClick={() => setMenu(menu === "more" ? null : "more")} className="relative w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">
               ⋯
-              {pendingHook.length > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-bg text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
+              {pendingHook.length > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
             </button>
             {menu === "more" && (
               <div className="absolute top-10 right-0 z-50 bg-f-panel3 border border-f-border rounded-lg shadow-xl p-1.5 w-56 flex flex-col gap-0.5">
@@ -425,6 +450,10 @@ export default function App() {
                   <Legend className="bg-f-c" label="C" />
                   <Legend className="bg-f-r" label="R" />
                   <Legend className="bg-f-duel" label="Duel" />
+                </div>
+                <div className="flex items-center justify-between px-2.5 py-1.5">
+                  <span className="text-sm text-f-text">Motív</span>
+                  <ThemeToggle theme={theme} onChange={setTheme} />
                 </div>
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">{isAdmin ? "Admin" : "Prihlásenie"}</button>
@@ -436,7 +465,7 @@ export default function App() {
                     <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>
                     <button onClick={() => togglePanel("hook")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
                       WhatsApp fronta
-                      {pendingHook.length > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-bg text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
+                      {pendingHook.length > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
                     </button>
                   </>
                 )}
@@ -468,7 +497,7 @@ export default function App() {
         {conflict && (
           <div className="mt-2 p-2 rounded-lg bg-f-accent/10 border border-f-accent/50 text-xs text-f-text flex items-center gap-2 flex-wrap">
             Niekto iný medzitým zmenil dáta na serveri — tvoje posledné zmeny sa neuložili.
-            <button onClick={resolveConflict} className="px-2 py-0.5 rounded-lg bg-f-accent text-f-bg font-bold">Načítať znova (zahodí moje neuložené zmeny)</button>
+            <button onClick={resolveConflict} className="px-2 py-0.5 rounded-lg bg-f-accent text-f-ink font-bold">Načítať znova (zahodí moje neuložené zmeny)</button>
           </div>
         )}
       </header>

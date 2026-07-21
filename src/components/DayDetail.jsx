@@ -45,8 +45,8 @@ export default function DayDetail({ iso, crew, cellOf, onClose }) {
               <div className="flex flex-wrap gap-1.5">
                 {working.map(({ c, x }) => (
                   <span key={c.id} className="text-xs font-semibold pl-1 pr-2.5 py-1 rounded-lg bg-f-panel2 text-f-text/90 border border-f-border flex gap-1.5 items-center">
-                    {x.shift && <u className={`not-italic font-mono text-[10.5px] font-bold text-f-bg rounded px-1.5 py-0.5 ${CHIP_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</u>}
-                    {x.duel && <u className="not-italic font-mono text-[10.5px] font-bold text-f-bg rounded px-1.5 py-0.5 bg-f-duel">D</u>}
+                    {x.shift && <u className={`not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 ${CHIP_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</u>}
+                    {x.duel && <u className="not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 bg-f-duel">D</u>}
                     {c.name}
                   </span>
                 ))}

@@ -50,7 +50,7 @@ export default function AdminPanel({ isAdmin, onLogin, onLogout, onClose, lastEr
             className="px-2 py-1 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text placeholder:text-f-faint2"
             onKeyDown={(e) => e.key === "Enter" && onLogin(pw)}
           />
-          <button onClick={() => onLogin(pw)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-accent hover:brightness-110 text-f-bg transition-colors">Prihlásiť sa</button>
+          <button onClick={() => onLogin(pw)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-accent hover:brightness-110 text-f-ink transition-colors">Prihlásiť sa</button>
           {lastError && <span className="text-sm text-f-accent">{lastError}</span>}
         </div>
       )}

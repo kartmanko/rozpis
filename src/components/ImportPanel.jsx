@@ -99,7 +99,7 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
               <div className="text-xs grow min-w-48">
                 <div className="font-semibold flex items-center gap-1 flex-wrap text-f-text">
                   {r.sender} {r.phone && <span className="text-f-muted2 font-mono">{r.phone}</span>}
-                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-f-r text-f-bg text-[10px] font-bold uppercase">Oprava</span>}
+                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-f-r text-f-ink text-[10px] font-bold uppercase">Oprava</span>}
                 </div>
                 <div className="text-f-muted2">{r.text}</div>
                 {r.noRestrictions && <div className="font-mono text-f-muted">bez obmedzení</div>}
@@ -125,7 +125,7 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
               <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-f-faint text-sm px-2">Preskočiť</button>
             </div>
           ))}
-          <button onClick={apply} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-a text-f-bg hover:brightness-110 transition-colors">Zapísať do tabuľky</button>
+          <button onClick={apply} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-a text-f-ink hover:brightness-110 transition-colors">Zapísať do tabuľky</button>
         </div>
       )}
     </div>

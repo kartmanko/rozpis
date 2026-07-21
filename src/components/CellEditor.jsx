@@ -14,12 +14,12 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
       </div>
       <div className="flex flex-wrap gap-2 mb-2">
         <button onClick={() => onSet({ off: false, shift: null, duel: false })} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted transition-colors">Vyčistiť</button>
-        <button onClick={() => onSet({ off: !cell.off })} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${cell.off ? "bg-f-accent text-f-bg" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>× Nemôže</button>
+        <button onClick={() => onSet({ off: !cell.off })} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${cell.off ? "bg-f-accent text-f-ink" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>× Nemôže</button>
         {DAY_SHIFTS.map((s) => (
-          <button key={s} onClick={() => onSet({ shift: cell.shift === s ? null : s })} className={`px-3 py-1.5 rounded-lg text-sm font-mono font-bold transition-colors ${cell.shift === s ? `${SHIFT_ON[s]} text-f-bg` : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>{s}</button>
+          <button key={s} onClick={() => onSet({ shift: cell.shift === s ? null : s })} className={`px-3 py-1.5 rounded-lg text-sm font-mono font-bold transition-colors ${cell.shift === s ? `${SHIFT_ON[s]} text-f-ink` : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>{s}</button>
         ))}
         {allowDuel && (
-          <button onClick={() => onSet({ duel: !cell.duel })} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${cell.duel ? "bg-f-duel text-f-bg" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>Duel</button>
+          <button onClick={() => onSet({ duel: !cell.duel })} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${cell.duel ? "bg-f-duel text-f-ink" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>Duel</button>
         )}
       </div>
       {allowDuel && (
