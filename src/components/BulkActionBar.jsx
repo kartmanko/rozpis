@@ -2,12 +2,14 @@ import { DAY_SHIFTS } from "../constants";
 
 const SHIFT_BG = { A: "bg-f-a", B: "bg-f-b", C: "bg-f-c", R: "bg-f-r" };
 
-export default function BulkActionBar({ count, allowDuel, onApply, onClearSelection, onExit }) {
+export default function BulkActionBar({ count, allowDuel, onApply, onClearSelection, onExit, canUndo, canRedo, onUndo, onRedo }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 bg-f-panel3 border-t-[3px] border-f-accent p-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] no-print">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-sm font-semibold text-f-text">Hromadný výber — {count} {count === 1 ? "bunka" : count < 5 ? "bunky" : "buniek"}</div>
         <div className="grow" />
+        <button onClick={onUndo} disabled={!canUndo} title="Späť (Ctrl/Cmd+Z)" className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text disabled:opacity-30 px-1.5">↶ Späť</button>
+        <button onClick={onRedo} disabled={!canRedo} title="Znova (Ctrl/Cmd+Shift+Z)" className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text disabled:opacity-30 px-1.5">↷ Znova</button>
         <button onClick={onClearSelection} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zrušiť výber</button>
         <button onClick={onExit} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
       </div>
@@ -28,8 +30,9 @@ export default function BulkActionBar({ count, allowDuel, onApply, onClearSelect
         )}
       </div>
       <div className="text-xs text-f-faint">
-        Klikaním na bunky v tabuľke ich pridávaš/uberáš z výberu. Podrž Shift a klikni na ďalšiu bunku v tom istom
-        stĺpci alebo riadku, nech označíš celý rozsah naraz.
+        Klik pridáva/uberá bunky z výberu · Shift+klik označí obdĺžnik od poslednej bunky · ťahanie myšou/prstom
+        (na mobile podrž chvíľu a potiahni) označí oblasť · klik na meno/dátum označí celý stĺpec/riadok · šípky na
+        klávesnici posúvajú výber, so Shift ho rozširujú · A/B/C/R nastavia smenu, Delete vymaže, Ctrl/Cmd+Z vráti späť.
       </div>
     </div>
   );

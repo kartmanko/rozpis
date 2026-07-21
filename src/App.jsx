@@ -57,6 +57,7 @@ export default function App() {
     try { return !!localStorage.getItem(ADMIN_STORAGE_KEY); } catch { return false; }
   });
   const [loginError, setLoginError] = useState("");
+  const canEdit = isAdmin; // deklarované skoro, nech ho môžu použiť efekty definované nižšie (klávesové skratky a pod.)
 
   /* --- téma appky: svetlý / tmavý / auto (podľa systému) --- */
   const [theme, setThemeState] = useState(() => {
@@ -136,13 +137,26 @@ export default function App() {
   /* --- hromadný výber --- */
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
-  const anchorRef = useRef(null);
+  const anchorRef = useRef(null); // pevný roh rozsahu (pre Shift+klik / Shift+šípka)
+  const cursorRef = useRef(null); // aktuálna/posledná pozícia (pohyblivý roh pri Shift, aj bod pre šípky)
 
   const key = (iso, cid) => iso + "|" + cid;
   const cellOf = (iso, cid) => cells[key(iso, cid)] || emptyCell;
 
+  /* --- späť/znova (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z alebo Ctrl+Y) — zásobník stavov "cells",
+     funguje pri akejkoľvek úprave (jedna bunka aj hromadná), nielen v režime výberu --- */
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const canUndo = undoStackRef.current.length > 0;
+  const canRedo = redoStackRef.current.length > 0;
+
   /* --- načítanie zo servera (Krok 1: bez nastaveného Workera appka beží čisto na lokálnych ukážkových dátach) --- */
   const load = useCallback(async () => {
+    // nová sada dát zo servera/dema nie je "úprava" — zásobník späť/znova sa začína odznova
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setHistoryVersion((v) => v + 1);
     if (!getApiBase()) {
       setCrew(DEMO_DATA.crew);
       setCells(DEMO_DATA.cells);
@@ -244,18 +258,66 @@ export default function App() {
     setDirty(true);
   }, []);
 
-  const setCell = useCallback((iso, cid, patch) => {
+  /* --- jediné miesto, cez ktoré sa upravuje "cells", nech sa každá zmena dá vrátiť späť (Ctrl/Cmd+Z) --- */
+  const commitCells = useCallback(
+    (updater, logMsg) => {
+      setCells((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        if (next !== prev) {
+          undoStackRef.current = [...undoStackRef.current, prev].slice(-60);
+          redoStackRef.current = [];
+        }
+        return next;
+      });
+      setDirty(true);
+      if (logMsg) addLog(logMsg);
+      setHistoryVersion((v) => v + 1);
+    },
+    [addLog]
+  );
+
+  const undoCells = useCallback(() => {
+    if (!undoStackRef.current.length) return;
     setCells((prev) => {
-      const k = iso + "|" + cid;
-      const cur = prev[k] || emptyCell;
-      const next = { ...cur, ...patch };
-      const empty = !next.off && !next.shift && !next.duel && !next.note;
-      const out = { ...prev };
-      if (empty) delete out[k]; else out[k] = next;
-      return out;
+      const stack = undoStackRef.current;
+      const target = stack[stack.length - 1];
+      undoStackRef.current = stack.slice(0, -1);
+      redoStackRef.current = [...redoStackRef.current, prev].slice(-60);
+      return target;
     });
     setDirty(true);
+    setStatus("Vrátené späť.");
+    setHistoryVersion((v) => v + 1);
   }, []);
+
+  const redoCells = useCallback(() => {
+    if (!redoStackRef.current.length) return;
+    setCells((prev) => {
+      const stack = redoStackRef.current;
+      const target = stack[stack.length - 1];
+      redoStackRef.current = stack.slice(0, -1);
+      undoStackRef.current = [...undoStackRef.current, prev].slice(-60);
+      return target;
+    });
+    setDirty(true);
+    setStatus("Zopakované.");
+    setHistoryVersion((v) => v + 1);
+  }, []);
+
+  const setCell = useCallback(
+    (iso, cid, patch) => {
+      commitCells((prev) => {
+        const k = iso + "|" + cid;
+        const cur = prev[k] || emptyCell;
+        const next = { ...cur, ...patch };
+        const empty = !next.off && !next.shift && !next.duel && !next.note;
+        const out = { ...prev };
+        if (empty) delete out[k]; else out[k] = next;
+        return out;
+      });
+    },
+    [commitCells]
+  );
 
   // NAD časy sú univerzálne podľa smeny (A/B/C/R/Duel), nie podľa dátumu.
   const setNad = useCallback((shiftKey, patch) => {
@@ -273,7 +335,7 @@ export default function App() {
   const resolveHook = useCallback(
     (entry, crewId) => {
       if (crewId) {
-        setCells((prev) => {
+        commitCells((prev) => {
           const out = { ...prev };
           (entry.unavailable || []).forEach((iso) => {
             const k = iso + "|" + crewId;
@@ -306,14 +368,14 @@ export default function App() {
       setPendingHookState((prev) => prev.filter((e) => e.id !== entry.id));
       setDirty(true);
     },
-    [crew, addLog]
+    [crew, addLog, commitCells]
   );
 
   /* --- hromadná úprava vybraných buniek --- */
   const applyBulk = useCallback(
     (patch) => {
       if (!selectedKeys.size) return;
-      setCells((prev) => {
+      commitCells((prev) => {
         const out = { ...prev };
         selectedKeys.forEach((k) => {
           const cur = out[k] || emptyCell;
@@ -322,22 +384,29 @@ export default function App() {
           if (empty) delete out[k]; else out[k] = next;
         });
         return out;
-      });
-      setDirty(true);
-      addLog(`Hromadná úprava — ${selectedKeys.size} ${selectedKeys.size === 1 ? "bunka" : "buniek"}`);
+      }, `Hromadná úprava — ${selectedKeys.size} ${selectedKeys.size === 1 ? "bunka" : "buniek"}`);
     },
-    [selectedKeys, addLog]
+    [selectedKeys, commitCells]
   );
 
   const wrappedSetCrew = useCallback((updater) => { setCrew(updater); setDirty(true); }, []);
 
-  /* --- výmena smeny --- */
+  /* --- výmena smeny (jeden krok späť/znova pre celú výmenu naraz) --- */
   const swap = (iso, aId, bId) => {
-    const a = cellOf(iso, aId), b = cellOf(iso, bId);
-    setCell(iso, aId, { ...b });
-    setCell(iso, bId, { ...a });
     const nameOf = (id) => crew.find((c) => c.id === id)?.name || "?";
-    addLog(`Výmena ${skDate(iso)}: ${nameOf(aId)} ↔ ${nameOf(bId)}`);
+    commitCells((prev) => {
+      const a = prev[iso + "|" + aId] || emptyCell;
+      const b = prev[iso + "|" + bId] || emptyCell;
+      const out = { ...prev };
+      out[iso + "|" + aId] = { ...b };
+      out[iso + "|" + bId] = { ...a };
+      [aId, bId].forEach((cid) => {
+        const k = iso + "|" + cid;
+        const v = out[k];
+        if (v && !v.off && !v.shift && !v.duel && !v.note) delete out[k];
+      });
+      return out;
+    }, `Výmena ${skDate(iso)}: ${nameOf(aId)} ↔ ${nameOf(bId)}`);
   };
 
   /* --- poradie stĺpcov ---
@@ -359,23 +428,24 @@ export default function App() {
     });
   };
 
-  /* --- klik na bunku: buď hromadný výber, alebo editor jednej bunky --- */
+  /* --- klik na bunku: buď hromadný výber, alebo editor jednej bunky ---
+     computeRangeKeys počíta CELÝ obdĺžnik medzi dvomi bunkami (nielen rovnaký stĺpec/riadok
+     ako predtým) — funguje pre Shift+klik, Shift+šípku aj ťahanie myšou/prstom.
+     Počíta sa vždy nad AKTUÁLNE ZOBRAZENÝMI dňami/štábom (filteredDays/filteredCrew), nech
+     rozsah nezasahuje do skrytých mesiacov/rolí, keď je aktívny filter. */
   const computeRangeKeys = (a, b) => {
-    if (a.crewId === b.crewId) {
-      const idxA = days.findIndex((d) => d.iso === a.iso);
-      const idxB = days.findIndex((d) => d.iso === b.iso);
-      if (idxA === -1 || idxB === -1) return [key(b.iso, b.crewId)];
-      const [lo, hi] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-      return days.slice(lo, hi + 1).map((d) => key(d.iso, a.crewId));
+    const rowA = filteredDays.findIndex((d) => d.iso === a.iso);
+    const rowB = filteredDays.findIndex((d) => d.iso === b.iso);
+    const colA = filteredCrew.findIndex((c) => c.id === a.crewId);
+    const colB = filteredCrew.findIndex((c) => c.id === b.crewId);
+    if (rowA === -1 || rowB === -1 || colA === -1 || colB === -1) return [key(b.iso, b.crewId)];
+    const [rowLo, rowHi] = rowA < rowB ? [rowA, rowB] : [rowB, rowA];
+    const [colLo, colHi] = colA < colB ? [colA, colB] : [colB, colA];
+    const out = [];
+    for (let r = rowLo; r <= rowHi; r++) {
+      for (let c = colLo; c <= colHi; c++) out.push(key(filteredDays[r].iso, filteredCrew[c].id));
     }
-    if (a.iso === b.iso) {
-      const idxA = crew.findIndex((c) => c.id === a.crewId);
-      const idxB = crew.findIndex((c) => c.id === b.crewId);
-      if (idxA === -1 || idxB === -1) return [key(b.iso, b.crewId)];
-      const [lo, hi] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
-      return crew.slice(lo, hi + 1).map((c) => key(a.iso, c.id));
-    }
-    return [key(b.iso, b.crewId)];
+    return out;
   };
 
   const handleCellClick = (pos, event) => {
@@ -395,14 +465,127 @@ export default function App() {
       return next;
     });
     anchorRef.current = pos;
+    cursorRef.current = pos;
+  };
+
+  // ťahanie myšou/prstom (podržaním na mobile) — vždy nahradí výber čerstvým obdĺžnikom,
+  // presne ako v Exceli; jednotlivé "poklepania" (handleCellClick vyššie) ostávajú prídavné.
+  const onDragSelect = (startPos, currentPos) => {
+    setSelectedKeys(new Set(computeRangeKeys(startPos, currentPos)));
+    anchorRef.current = startPos;
+    cursorRef.current = currentPos;
+  };
+
+  // klik na hlavičku stĺpca (meno) v režime výberu -> označí celý stĺpec (Shift/Ctrl/Cmd = pridá k výberu)
+  const onSelectColumn = (crewId, event) => {
+    const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
+    const colKeys = filteredDays.map((d) => key(d.iso, crewId));
+    setSelectedKeys((prev) => {
+      if (!additive) return new Set(colKeys);
+      const allSelected = colKeys.every((k) => prev.has(k));
+      const next = new Set(prev);
+      colKeys.forEach((k) => (allSelected ? next.delete(k) : next.add(k)));
+      return next;
+    });
+    anchorRef.current = { iso: filteredDays[0]?.iso, crewId };
+    cursorRef.current = { iso: filteredDays[filteredDays.length - 1]?.iso, crewId };
+  };
+
+  // klik na dátumovú bunku v režime výberu -> označí celý riadok (deň)
+  const onSelectRow = (iso, event) => {
+    const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
+    const rowKeys = filteredCrew.map((c) => key(iso, c.id));
+    setSelectedKeys((prev) => {
+      if (!additive) return new Set(rowKeys);
+      const allSelected = rowKeys.every((k) => prev.has(k));
+      const next = new Set(prev);
+      rowKeys.forEach((k) => (allSelected ? next.delete(k) : next.add(k)));
+      return next;
+    });
+    anchorRef.current = { iso, crewId: filteredCrew[0]?.id };
+    cursorRef.current = { iso, crewId: filteredCrew[filteredCrew.length - 1]?.id };
   };
 
   const toggleBulkMode = () => {
     setBulkMode((v) => !v);
     setSelectedKeys(new Set());
     anchorRef.current = null;
+    cursorRef.current = null;
     setSel(null);
   };
+
+  /* --- klávesové skratky pre hromadný výber a späť/znova ---
+     Späť/znova (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y) fungujú kedykoľvek, keď je admin
+     prihlásený. Šípky/Delete/písmená A-B-C-R/Esc fungujú iba v zapnutom hromadnom výbere.
+     Nič z toho nezasahuje, keď má fokus textové pole (input/textarea/select). */
+  useEffect(() => {
+    const isTypingTarget = (el) =>
+      el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+
+    const onKeyDown = (e) => {
+      if (isTypingTarget(document.activeElement)) return;
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (canEdit && mod && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        if (e.shiftKey) redoCells(); else undoCells();
+        return;
+      }
+      if (canEdit && mod && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redoCells();
+        return;
+      }
+
+      if (!bulkMode || !canEdit) return;
+
+      if (e.key === "Escape") {
+        if (selectedKeys.size) { setSelectedKeys(new Set()); anchorRef.current = null; cursorRef.current = null; }
+        else toggleBulkMode();
+        return;
+      }
+
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedKeys.size) {
+        e.preventDefault();
+        applyBulk({ off: false, shift: null, duel: false });
+        return;
+      }
+
+      if (selectedKeys.size && /^[abcr]$/i.test(e.key)) {
+        e.preventDefault();
+        applyBulk({ shift: e.key.toUpperCase() });
+        return;
+      }
+
+      const dirs = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+      if (dirs[e.key] && filteredDays.length && filteredCrew.length) {
+        e.preventDefault();
+        const base = cursorRef.current || anchorRef.current || { iso: filteredDays[0].iso, crewId: filteredCrew[0].id };
+        const rowIdx = filteredDays.findIndex((d) => d.iso === base.iso);
+        const colIdx = filteredCrew.findIndex((c) => c.id === base.crewId);
+        if (rowIdx === -1 || colIdx === -1) return;
+        const [dr, dc] = dirs[e.key];
+        const nr = Math.min(Math.max(rowIdx + dr, 0), filteredDays.length - 1);
+        const nc = Math.min(Math.max(colIdx + dc, 0), filteredCrew.length - 1);
+        const nextPos = { iso: filteredDays[nr].iso, crewId: filteredCrew[nc].id };
+        cursorRef.current = nextPos;
+        if (e.shiftKey) {
+          if (!anchorRef.current) anchorRef.current = base;
+          setSelectedKeys(new Set(computeRangeKeys(anchorRef.current, nextPos)));
+        } else {
+          anchorRef.current = nextPos;
+          setSelectedKeys(new Set([key(nextPos.iso, nextPos.crewId)]));
+        }
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-cell-key="${nextPos.iso}|${nextPos.crewId}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        });
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkMode, canEdit, selectedKeys, filteredDays, filteredCrew, applyBulk, undoCells, redoCells]);
 
   /* --- admin prihlásenie --- */
   const handleLogin = (pw) => {
@@ -437,7 +620,6 @@ export default function App() {
     [cells]
   );
 
-  const canEdit = isAdmin;
   const togglePanel = (p) => { setPanel(panel === p ? null : p); setMenu(null); };
 
   return (
@@ -499,6 +681,11 @@ export default function App() {
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">{isAdmin ? "Admin" : "Prihlásenie"}</button>
                 {canEdit && (
                   <>
+                    <div className="border-t border-f-hair my-1" />
+                    <div className="flex gap-1 px-2.5 py-1">
+                      <button onClick={() => { undoCells(); setMenu(null); }} disabled={!canUndo} title="Späť (Ctrl/Cmd+Z)" className="flex-1 px-2 py-1 rounded-md text-sm bg-f-panel2 text-f-text hover:bg-f-border disabled:opacity-30">↶ Späť</button>
+                      <button onClick={() => { redoCells(); setMenu(null); }} disabled={!canRedo} title="Znova (Ctrl/Cmd+Shift+Z)" className="flex-1 px-2 py-1 rounded-md text-sm bg-f-panel2 text-f-text hover:bg-f-border disabled:opacity-30">↷ Znova</button>
+                    </div>
                     <div className="border-t border-f-hair my-1" />
                     <button onClick={() => togglePanel("import")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import z chatu</button>
                     <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>
@@ -580,15 +767,18 @@ export default function App() {
       )}
 
       {bulkMode && canEdit && (
-        <div className="px-3.5 py-2 bg-f-accent/10 border-b border-f-accent/40 text-xs text-f-text no-print">
+        // min-h nech je pevná — text sa mení podľa počtu vybraných buniek a bez pevnej výšky by
+        // sa pri prvom výbere (0 -> 1 bunka) tabuľka pod tým o pár pixelov posunula (iný počet
+        // riadkov textu), čo je pri práve prebiehajúcom ťahaní/označovaní rušivé.
+        <div className="px-3.5 py-2 min-h-[2.75rem] flex items-center bg-f-accent/10 border-b border-f-accent/40 text-xs text-f-text no-print">
           {selectedKeys.size === 0
-            ? "Hromadný výber je zapnutý — klikaj na bunky v tabuľke, ktoré chceš označiť."
+            ? "Hromadný výber je zapnutý — klikaj, ťahaj, alebo klikni na meno/dátum pre celý stĺpec/riadok."
             : `Označených ${selectedKeys.size} ${selectedKeys.size === 1 ? "bunka" : "buniek"} — vyber akciu dole, alebo pokračuj v označovaní ďalších.`}
         </div>
       )}
 
       {/* rezerva miesta dole, nech fixný panel (editor bunky / hromadný výber) neprekrýva posledné riadky tabuľky */}
-      <div style={{ paddingBottom: bulkMode ? 210 : sel && canEdit ? 190 : 0 }}>
+      <div style={{ paddingBottom: bulkMode ? 250 : sel && canEdit ? 190 : 0 }}>
         <ScheduleTable
           days={filteredDays}
           crew={filteredCrew}
@@ -598,6 +788,9 @@ export default function App() {
           bulkMode={bulkMode}
           selectedKeys={selectedKeys}
           onCellClick={handleCellClick}
+          onDragSelect={onDragSelect}
+          onSelectColumn={onSelectColumn}
+          onSelectRow={onSelectRow}
           onMoveCrew={moveCrew}
           onDayClick={setDayDetailIso}
           openDayIso={dayDetailIso}
@@ -630,8 +823,12 @@ export default function App() {
           count={selectedKeys.size}
           allowDuel={bulkAllowsDuel}
           onApply={applyBulk}
-          onClearSelection={() => { setSelectedKeys(new Set()); anchorRef.current = null; }}
+          onClearSelection={() => { setSelectedKeys(new Set()); anchorRef.current = null; cursorRef.current = null; }}
           onExit={toggleBulkMode}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undoCells}
+          onRedo={redoCells}
         />
       )}
     </div>

@@ -9,7 +9,7 @@ const SHIFT_BADGE = {
   R: "bg-f-r",
 };
 
-export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew, onDayClick, openDayIso }) {
+export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onDragSelect, onSelectColumn, onSelectRow, onMoveCrew, onDayClick, openDayIso }) {
   const today = todayIso();
 
   // Mesačný "divider" riadok sa musí prilepiť presne pod hlavičku (mená štábu), ktorej
@@ -25,6 +25,82 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
     ro.observe(el);
     return () => ro.disconnect();
   }, [crew]);
+
+  /* --- ťahanie myšou/prstom pre hromadný výber (ako v Exceli) ---
+     Myš: ťahanie sa spustí hneď pri stlačení (neruší sa so skrolovaním, to ide cez koliesko).
+     Dotyk: ťahanie sa spustí až po PODRŽANÍ (~450ms) bez väčšieho pohybu, nech bežné
+     prstové skrolovanie tabuľky nezačne omylom označovať bunky. Pozícia sa počas ťahania
+     hľadá cez document.elementFromPoint (nie cez pointerenter) — na dotyk totiž prehliadač
+     posiela ďalšie pointermove udalosti stále na pôvodný element, nie na ten pod prstom. */
+  const dragRef = useRef({ active: false, startPos: null });
+  const longPressRef = useRef(null);
+  const suppressClickRef = useRef(false);
+
+  const cellPosFromPoint = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const cellEl = el && el.closest ? el.closest("[data-cell-key]") : null;
+    if (!cellEl) return null;
+    const [iso, crewId] = cellEl.getAttribute("data-cell-key").split("|");
+    return { iso, crewId };
+  };
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragRef.current.active) return;
+      e.preventDefault();
+      const pos = cellPosFromPoint(e.clientX, e.clientY);
+      if (!pos) return;
+      dragRef.current.moved = true;
+      onDragSelect && onDragSelect(dragRef.current.startPos, pos);
+    };
+    const onUp = () => {
+      if (dragRef.current.active && dragRef.current.moved) {
+        suppressClickRef.current = true;
+        setTimeout(() => { suppressClickRef.current = false; }, 0);
+      }
+      dragRef.current = { active: false, startPos: null };
+      clearTimeout(longPressRef.current);
+    };
+    document.addEventListener("pointermove", onMove, { passive: false });
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onDragSelect]);
+
+  const handleCellPointerDown = (pos, e) => {
+    if (!bulkMode || !canEdit) return;
+    if (e.shiftKey || e.ctrlKey || e.metaKey) return; // tie rieši bežný klik (rozsah / pridanie)
+    clearTimeout(longPressRef.current);
+    if (e.pointerType === "touch") {
+      const startX = e.clientX, startY = e.clientY;
+      const armDrag = () => {
+        dragRef.current = { active: true, startPos: pos, moved: false };
+        onDragSelect && onDragSelect(pos, pos);
+        if (navigator.vibrate) navigator.vibrate(12);
+        document.removeEventListener("pointermove", cancelIfMoved);
+      };
+      const cancelIfMoved = (ev) => {
+        if (Math.abs(ev.clientX - startX) > 10 || Math.abs(ev.clientY - startY) > 10) {
+          clearTimeout(longPressRef.current);
+          document.removeEventListener("pointermove", cancelIfMoved);
+        }
+      };
+      longPressRef.current = setTimeout(armDrag, 450);
+      document.addEventListener("pointermove", cancelIfMoved, { passive: true });
+    } else {
+      dragRef.current = { active: true, startPos: pos, moved: false };
+    }
+  };
+
+  const handleCellClick = (pos, e) => {
+    if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+    canEdit && onCellClick(pos, e);
+  };
 
   return (
     // Skutočne ohraničená výška (.schedule-scroll, pozri index.css) — bez nej by tento
@@ -42,7 +118,9 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
             {crew.map((c, i) => (
               <th
                 key={c.id}
-                className="sticky top-0 z-30 bg-f-bg border-b border-f-border2 px-1 py-2.5 w-[76px] align-bottom text-[10px] font-bold uppercase tracking-wider text-f-muted2"
+                onClick={bulkMode && canEdit ? (e) => onSelectColumn && onSelectColumn(c.id, e) : undefined}
+                title={bulkMode && canEdit ? "Klik označí celý stĺpec (Shift/Ctrl = pridať k výberu)" : undefined}
+                className={`sticky top-0 z-30 bg-f-bg border-b border-f-border2 px-1 py-2.5 w-[76px] align-bottom text-[10px] font-bold uppercase tracking-wider text-f-muted2 ${bulkMode && canEdit ? "cursor-pointer hover:brightness-125" : ""}`}
               >
                 <div className="leading-tight break-words normal-case tracking-normal">{c.name}</div>
                 {canEdit && !bulkMode && (
@@ -76,8 +154,12 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                   className={isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""}
                 >
                   <td
-                    onClick={() => onDayClick && onDayClick(d.iso)}
-                    className={`sticky left-0 z-10 border-b border-f-hair px-2 h-8 font-mono text-[11px] whitespace-nowrap ${onDayClick ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"} ${isOpenDay ? "shadow-[inset_3px_0_0_0_#ff4d17]" : ""}`}
+                    onClick={(e) => {
+                      if (bulkMode && canEdit) { onSelectRow && onSelectRow(d.iso, e); return; }
+                      onDayClick && onDayClick(d.iso);
+                    }}
+                    title={bulkMode && canEdit ? "Klik označí celý riadok (Shift/Ctrl = pridať k výberu)" : undefined}
+                    className={`sticky left-0 z-10 border-b border-f-hair px-2 h-8 font-mono text-[11px] whitespace-nowrap ${onDayClick || bulkMode ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"} ${isOpenDay ? "shadow-[inset_3px_0_0_0_#ff4d17]" : ""}`}
                   >
                     <span className={reh ? "text-f-reh" : isToday ? "text-f-a font-bold" : ci.fifth ? "text-f-r font-semibold" : "text-f-text/90"}>
                       {d.day}.{d.month + 1}. {d.dow}
@@ -92,8 +174,10 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                     return (
                       <td
                         key={c.id}
-                        onClick={(e) => canEdit && onCellClick({ iso: d.iso, crewId: c.id }, e)}
-                        className={`relative border-b border-f-hair h-8 text-center ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""} ${bad ? "ring-2 ring-inset ring-red-500/70" : ""} ${selected ? "ring-2 ring-inset ring-f-accent bg-f-accent/10" : ""}`}
+                        data-cell-key={k}
+                        onPointerDown={(e) => handleCellPointerDown({ iso: d.iso, crewId: c.id }, e)}
+                        onClick={(e) => handleCellClick({ iso: d.iso, crewId: c.id }, e)}
+                        className={`relative border-b border-f-hair h-8 text-center select-none ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""} ${bad ? "ring-2 ring-inset ring-red-500/70" : ""} ${selected ? "ring-2 ring-inset ring-f-accent bg-f-accent/10" : ""}`}
                       >
                         {selected && <span className="absolute top-0 right-0 text-[9px] leading-none bg-f-accent text-f-ink font-bold px-1 rounded-bl">✓</span>}
                         <div className="flex flex-col items-center justify-center gap-0.5 leading-none">
