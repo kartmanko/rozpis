@@ -1,8 +1,15 @@
-import { useState, useEffect } from "react";
 import { cycleInfo, toUTC } from "../dateUtils";
-import { REHEARSALS, ROLES, SK_MONTHS, SK_DAYS_FULL } from "../constants";
+import { REHEARSALS, ROLES, SK_DAYS_FULL } from "../constants";
 
-export default function DayDetail({ iso, crew, cellOf, nad, canEdit, onSetNad, onClose }) {
+const SHIFT_ORDER = { A: 0, B: 1, C: 2, R: 3 };
+const CHIP_BADGE = {
+  A: "bg-f-a",
+  B: "bg-f-b",
+  C: "bg-f-c",
+  R: "bg-f-r",
+};
+
+export default function DayDetail({ iso, crew, cellOf, onClose }) {
   const ci = cycleInfo(iso);
   const reh = REHEARSALS.includes(iso);
   const d = new Date(toUTC(iso));
@@ -10,94 +17,43 @@ export default function DayDetail({ iso, crew, cellOf, nad, canEdit, onSetNad, o
   const monthIdx = d.getUTCMonth();
   const dowFull = SK_DAYS_FULL[d.getUTCDay()];
 
-  const current = nad?.[iso] || { depart: "", return: "" };
-  const [depart, setDepart] = useState(current.depart || "");
-  const [ret, setRet] = useState(current.return || "");
-  useEffect(() => {
-    setDepart(current.depart || "");
-    setRet(current.return || "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [iso]);
-
-  const commit = (patch) => {
-    const next = { depart, return: ret, ...patch };
-    onSetNad(iso, next);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 no-print" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 no-print" onClick={onClose}>
       <div
-        className="bg-white dark:bg-stone-900 rounded-xl shadow-xl border border-stone-200 dark:border-stone-700 w-[min(92vw,28rem)] max-h-[85vh] overflow-auto p-4"
+        className="bg-f-panel3 border-t-[3px] sm:border-t-[3px] border-f-accent shadow-xl w-full sm:w-[min(92vw,26rem)] sm:rounded-b-xl max-h-[85vh] overflow-auto p-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start gap-2 mb-3">
-          <div>
-            <div className="text-base font-bold">{dowFull} {dayNum}.{monthIdx + 1}.2026</div>
-            <div className="text-xs text-stone-500 dark:text-stone-400 font-mono">
-              {reh ? "skúšky" : ci.n ? `cyklus ${ci.n} · deň ${ci.pos}${ci.fifth ? " (5. deň)" : ""}` : "mimo cyklu"}
-            </div>
-          </div>
-          <div className="grow" />
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 text-sm">Zavrieť</button>
+        <div className="flex items-baseline gap-2.5 mb-0.5">
+          <div className="text-2xl font-extrabold tracking-tight text-f-text">{dayNum}.{monthIdx + 1}.</div>
+          <div className="text-xs text-f-muted2">{dowFull.toLowerCase()}</div>
+          <div className="ml-auto text-[11px] font-bold uppercase tracking-wider text-f-faint cursor-pointer" onClick={onClose}>Zavrieť</div>
+        </div>
+        <div className="font-mono text-[10.5px] text-f-r tracking-wide mb-3.5">
+          {reh ? "SKÚŠKY" : ci.n ? `CYKLUS ${ci.n} · DEŇ ${ci.pos}/5` : "MIMO CYKLU"}
         </div>
 
-        <div className="space-y-3 mb-4">
-          {ROLES.map((r) => {
-            const people = crew.filter((c) => (c.role || "kamera") === r.key);
-            if (!people.length) return null;
-            const working = people
-              .map((c) => ({ c, x: cellOf(iso, c.id) }))
-              .filter(({ x }) => x.shift || x.duel);
-            return (
-              <div key={r.key}>
-                <div className="text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400 mb-1">{r.label}</div>
-                {working.length ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {working.map(({ c, x }) => (
-                      <span key={c.id} className="px-2 py-1 rounded-lg bg-emerald-600 dark:bg-emerald-700 text-white text-xs font-semibold">
-                        {c.name}{x.shift ? ` — ${x.shift}` : ""}{x.duel ? " · Duel" : ""}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-stone-400 dark:text-stone-500">nikto naplánovaný</div>
-                )}
+        {ROLES.map((r) => {
+          const people = crew.filter((c) => (c.role || "kamera") === r.key);
+          const working = people
+            .map((c) => ({ c, x: cellOf(iso, c.id) }))
+            .filter(({ x }) => x.shift || x.duel)
+            .sort((p1, p2) => (SHIFT_ORDER[p1.x.shift] ?? 9) - (SHIFT_ORDER[p2.x.shift] ?? 9));
+          if (!working.length) return null;
+          return (
+            <div key={r.key} className="flex gap-2.5 items-start py-2.5 border-t border-f-hair">
+              <div className="text-[9.5px] font-bold tracking-wider text-f-faint w-14 flex-none pt-1 uppercase">{r.label}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {working.map(({ c, x }) => (
+                  <span key={c.id} className="text-xs font-semibold pl-1 pr-2.5 py-1 rounded-lg bg-f-panel2 text-f-text/90 border border-f-border flex gap-1.5 items-center">
+                    {x.shift && <u className={`not-italic font-mono text-[10.5px] font-bold text-f-bg rounded px-1.5 py-0.5 ${CHIP_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</u>}
+                    {x.duel && <u className="not-italic font-mono text-[10.5px] font-bold text-f-bg rounded px-1.5 py-0.5 bg-f-duel">D</u>}
+                    {c.name}
+                  </span>
+                ))}
               </div>
-            );
-          })}
-        </div>
-
-        <div className="border-t border-stone-200 dark:border-stone-800 pt-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400 mb-1.5">NAD časy</div>
-          {canEdit ? (
-            <div className="flex gap-3 flex-wrap items-center">
-              <label className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
-                Odchod z NAD
-                <input
-                  type="time"
-                  value={depart}
-                  onChange={(e) => { setDepart(e.target.value); commit({ depart: e.target.value }); }}
-                  className="px-2 py-1 rounded-lg bg-white dark:bg-stone-800 text-sm border border-stone-300 dark:border-stone-700"
-                />
-              </label>
-              <label className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
-                Návrat na NAD
-                <input
-                  type="time"
-                  value={ret}
-                  onChange={(e) => { setRet(e.target.value); commit({ return: e.target.value }); }}
-                  className="px-2 py-1 rounded-lg bg-white dark:bg-stone-800 text-sm border border-stone-300 dark:border-stone-700"
-                />
-              </label>
             </div>
-          ) : (
-            <div className="text-sm font-mono">
-              {current.depart || current.return
-                ? `${current.depart || "—"} → ${current.return || "—"}`
-                : <span className="text-stone-400 dark:text-stone-500">nezadané</span>}
-            </div>
-          )}
-        </div>
+          );
+        })}
       </div>
     </div>
   );

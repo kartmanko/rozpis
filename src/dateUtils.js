@@ -31,3 +31,20 @@ export const skDate = (iso) => {
   const d = new Date(toUTC(iso));
   return `${d.getUTCDate()}.${d.getUTCMonth() + 1}.`;
 };
+
+// Dnešný dátum vo formáte YYYY-MM-DD (lokálny čas prehliadača, nie UTC — nech "dnes"
+// sedí s tým, čo človek vidí na svojom telefóne).
+export function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Priezvisko (posledné slovo mena) — pre skrátené hlavičky stĺpcov v tabuľke.
+// Ak je meno jednoslovné (napr. "Martin"), vráti ho celé.
+export function surname(name) {
+  const parts = String(name || "").trim().split(/\s+/);
+  return parts[parts.length - 1] || name || "";
+}

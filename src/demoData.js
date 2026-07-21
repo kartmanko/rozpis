@@ -1,0 +1,41 @@
+// Ukážkové dáta pre Krok 1 (frontend bez pripojeného Cloudflare Workera) —
+// appka v tomto režime pracuje čisto lokálne v prehliadači, nič sa neposiela na server.
+export const DEMO_DATA = {
+  crew: [
+    { id: "c0", name: "Daniel Lörincz", aliases: [], role: "kamera" },
+    { id: "c1", name: "Denis Hazlinger", aliases: [], role: "kamera" },
+    { id: "c2", name: "Ondrej Zlatohlávek", aliases: [], role: "kamera" },
+    { id: "c3", name: "Ondrej Šedivý", aliases: [], role: "kamera" },
+    { id: "c4", name: "Martin Kavoň", aliases: [], role: "kamera" },
+    { id: "c5", name: "Peter Szoke", aliases: [], role: "kamera" },
+    { id: "c6", name: "Peter Onduš", aliases: [], role: "kamera" },
+    { id: "c7", name: "Vladimír Breburda", aliases: [], role: "kamera" },
+    { id: "c8", name: "Martin", aliases: [], role: "kamera" },
+    { id: "c9", name: "Jakub Balko", aliases: [], role: "kamera" },
+    { id: "c10", name: "Radoslav Hajnoš", aliases: [], role: "kamera" },
+    { id: "r0", name: "Jana Réžisérka", aliases: [], role: "rezia" },
+    { id: "l0", name: "Simonka Pecová", aliases: [], role: "logger" },
+  ],
+  cells: {
+    "2026-08-05|c0": { off: false, shift: "A", duel: false, note: "" },
+    "2026-08-05|c1": { off: false, shift: "B", duel: false, note: "" },
+    "2026-08-05|c2": { off: true, shift: null, duel: false, note: "" },
+    "2026-08-05|c4": { off: false, shift: "C", duel: false, note: "" },
+    "2026-08-05|r0": { off: false, shift: "R", duel: false, note: "" },
+    "2026-08-05|l0": { off: false, shift: "A", duel: false, note: "" },
+    "2026-08-09|c5": { off: false, shift: null, duel: true, note: "" },
+    "2026-08-09|c0": { off: false, shift: "A", duel: false, note: "" },
+    "2026-08-09|c2": { off: true, shift: null, duel: false, note: "" },
+    "2026-08-09|c4": { off: true, shift: null, duel: false, note: "" },
+    "2026-08-06|c3": { off: true, shift: "A", duel: false, note: "konflikt" },
+    "2026-08-07|c0": { off: false, shift: "A", duel: false, note: "skoro rano" },
+  },
+  nad: {
+    A: { depart: "06:00", return: "19:00" },
+    B: { depart: "09:00", return: "22:00" },
+    C: { depart: "12:00", return: "01:00" },
+    R: { depart: "07:00", return: "20:00" },
+    duel: { depart: "05:45", return: "23:30" },
+  },
+  log: [{ t: new Date(2026, 6, 20).toISOString(), text: "Ukážkové dáta — Krok 1, bez pripojeného servera." }],
+};

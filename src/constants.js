@@ -30,3 +30,13 @@ export const SK_MONTHS = ["Január", "Február", "Marec", "Apríl", "Máj", "Jú
 
 export const REFRESH_INTERVAL_MS = 2 * 60 * 1000; // 2 minúty, viď brief
 export const ADMIN_STORAGE_KEY = "rozpis_admin_pw";
+
+// Časy NAD (ateliéry, odkiaľ vozia štáb na plac) sú univerzálne pre celú produkciu —
+// viažu sa na smenu, nie na konkrétny dátum. Admin ich vyplní raz, mení len výnimočne.
+export const NAD_SHIFTS = [
+  { key: "A", label: "A" },
+  { key: "B", label: "B" },
+  { key: "C", label: "C" },
+  { key: "R", label: "R" },
+  { key: "duel", label: "Duel" },
+];

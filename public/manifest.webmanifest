@@ -5,8 +5,8 @@
   "start_url": "/rozpis/",
   "scope": "/rozpis/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#101010",
+  "theme_color": "#101010",
   "orientation": "any",
   "icons": [
     { "src": "https://d8j0ntlcm91z4.cloudfront.net/user_37iEesWSHZC3xkmRvCrIzsuTDdf/hf_20260720_220459_23ea6bd4-6481-4152-8193-66349c9362c9.png", "sizes": "2048x2048", "type": "image/png", "purpose": "any" }

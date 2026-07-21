@@ -1,15 +1,6 @@
 import { useState } from "react";
 import { guessCrew } from "../matching";
 import { parseScreenshot, ApiError } from "../api";
-import { SK_MONTHS } from "../constants";
-
-const fileToB64 = (file) =>
-  new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(String(r.result).split(",")[1]);
-    r.onerror = () => rej(new Error("Súbor sa nepodarilo načítať."));
-    r.readAsDataURL(file);
-  });
 
 export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, setStatus, adminPassword }) {
   const [month, setMonth] = useState(8);
@@ -81,44 +72,44 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
   const unresolved = rows.filter((r) => !r.crewId).length;
 
   return (
-    <div className="bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-800 p-3 no-print">
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <div className="text-sm font-semibold">Import screenshotov z WhatsApp</div>
+    <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
+      <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+        <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Import screenshotov z WhatsApp</div>
         <div className="grow" />
-        <label className="text-xs text-stone-500 dark:text-stone-400">
+        <label className="text-xs text-f-faint">
           Predvolený mesiac:{" "}
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 rounded-lg px-2 py-1 text-stone-900 dark:text-stone-100">
+          <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="bg-f-panel2 border border-f-border rounded-lg px-2 py-1 text-f-text">
             <option value={8}>August</option>
             <option value={9}>September</option>
             <option value={10}>Október</option>
           </select>
         </label>
-        <button onClick={onClose} className="text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 text-sm">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
-      <input type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && analyze(e.target.files)} className="text-sm" />
-      {busy && <div className="text-sm text-orange-600 dark:text-orange-400 mt-2">Čítam screenshoty…</div>}
-      {err && <div className="text-sm text-red-600 dark:text-red-400 mt-2">{err}</div>}
+      <input type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && analyze(e.target.files)} className="text-sm text-f-muted" />
+      {busy && <div className="text-sm text-f-r mt-2">Čítam screenshoty…</div>}
+      {err && <div className="text-sm text-f-accent mt-2">{err}</div>}
 
       {rows.length > 0 && (
         <div className="mt-3 space-y-2">
-          {unresolved > 0 && <div className="text-xs text-amber-600 dark:text-amber-400">Pri {unresolved} správach neviem, o koho ide — vyber kameramana.</div>}
+          {unresolved > 0 && <div className="text-xs text-f-r">Pri {unresolved} správach neviem, o koho ide — vyber osobu.</div>}
           {rows.map((r, i) => (
-            <div key={i} className="flex gap-2 items-start flex-wrap border border-stone-200 dark:border-stone-800 rounded-lg p-2">
+            <div key={i} className="flex gap-2 items-start flex-wrap border border-f-border rounded-lg p-2 bg-f-panel2">
               <div className="text-xs grow min-w-48">
-                <div className="font-semibold flex items-center gap-1 flex-wrap">
-                  {r.sender} {r.phone && <span className="text-stone-500 dark:text-stone-400 font-mono">{r.phone}</span>}
-                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-amber-600 dark:bg-amber-700 text-white text-[10px] font-bold uppercase">Oprava</span>}
+                <div className="font-semibold flex items-center gap-1 flex-wrap text-f-text">
+                  {r.sender} {r.phone && <span className="text-f-muted2 font-mono">{r.phone}</span>}
+                  {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-f-r text-f-bg text-[10px] font-bold uppercase">Oprava</span>}
                 </div>
-                <div className="text-stone-500 dark:text-stone-400">{r.text}</div>
-                {r.noRestrictions && <div className="font-mono text-stone-600 dark:text-stone-300">bez obmedzení</div>}
+                <div className="text-f-muted2">{r.text}</div>
+                {r.noRestrictions && <div className="font-mono text-f-muted">bez obmedzení</div>}
                 {(r.unavailable || []).length > 0 && (
-                  <div className="font-mono text-red-600 dark:text-red-300">
+                  <div className="font-mono text-f-accent">
                     nemôže: {r.unavailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
                   </div>
                 )}
                 {(r.correctedAvailable || []).length > 0 && (
-                  <div className="font-mono text-emerald-600 dark:text-emerald-300">
+                  <div className="font-mono text-f-a">
                     znova môže (oprava): {r.correctedAvailable.map((d) => d.slice(8) + "." + Number(d.slice(5, 7)) + ".").join(" ")}
                   </div>
                 )}
@@ -126,17 +117,25 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
               <select
                 value={r.crewId}
                 onChange={(e) => setRows((rs) => rs.map((x, j) => (j === i ? { ...x, crewId: e.target.value } : x)))}
-                className={`px-2 py-1 rounded-lg text-sm border ${r.crewId ? "bg-white dark:bg-stone-800 border-stone-300 dark:border-stone-700" : "bg-amber-100 dark:bg-amber-900 border-amber-400 dark:border-amber-600"}`}
+                className={`px-2 py-1 rounded-lg text-sm border ${r.crewId ? "bg-f-panel2 border-f-border text-f-text" : "bg-f-r/20 border-f-r text-f-r"}`}
               >
                 <option value="">— kto to je? —</option>
                 {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-stone-500 dark:text-stone-400 text-sm px-2">Preskočiť</button>
+              <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-f-faint text-sm px-2">Preskočiť</button>
             </div>
           ))}
-          <button onClick={apply} className="px-3 py-1.5 rounded-lg text-sm bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">Zapísať do tabuľky</button>
+          <button onClick={apply} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-a text-f-bg hover:brightness-110 transition-colors">Zapísať do tabuľky</button>
         </div>
       )}
     </div>
   );
 }
+
+const fileToB64 = (file) =>
+  new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = () => rej(new Error("Súbor sa nepodarilo načítať."));
+    r.readAsDataURL(file);
+  });

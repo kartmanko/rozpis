@@ -1,21 +1,29 @@
 import React from "react";
-import { cycleInfo } from "../dateUtils";
+import { cycleInfo, surname, todayIso } from "../dateUtils";
 import { REHEARSALS, SK_MONTHS } from "../constants";
 
-export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew, nad, onDayClick }) {
+const SHIFT_BADGE = {
+  A: "bg-f-a",
+  B: "bg-f-b",
+  C: "bg-f-c",
+  R: "bg-f-r",
+};
+
+export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulkMode, selectedKeys, onCellClick, onMoveCrew, onDayClick, openDayIso }) {
+  const today = todayIso();
   return (
-    <div className="overflow-auto">
-      <table className="border-collapse text-sm">
-        <thead className="sticky top-0 z-20">
+    <div className="overflow-auto bg-f-bg">
+      <table className="border-collapse text-sm w-full font-sans">
+        <thead className="sticky top-0 z-30">
           <tr>
-            <th className="sticky left-0 z-20 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-2 py-1 text-left w-28 min-w-28">Deň</th>
+            <th className="sticky left-0 z-30 bg-f-bg border-b border-f-border2 px-3.5 py-2.5 text-left w-24 min-w-24 text-[10px] font-bold uppercase tracking-wider text-f-muted2">Deň</th>
             {crew.map((c, i) => (
-              <th key={c.id} className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-1 py-1 w-24 min-w-24 align-bottom">
-                <div className="text-xs leading-tight break-words">{c.name}</div>
+              <th key={c.id} className="bg-f-bg border-b border-f-border2 px-1 py-2.5 w-20 min-w-20 align-bottom text-[10px] font-bold uppercase tracking-wider text-f-muted2">
+                <div className="leading-tight break-words normal-case">{surname(c.name)}</div>
                 {canEdit && !bulkMode && (
                   <div className="flex justify-center gap-1 mt-1 no-print">
-                    <button onClick={() => onMoveCrew(c.id, -1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">◀</button>
-                    <button onClick={() => onMoveCrew(c.id, 1)} className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 px-1">▶</button>
+                    <button onClick={() => onMoveCrew(c.id, -1)} className="text-f-faint hover:text-f-text px-1">◀</button>
+                    <button onClick={() => onMoveCrew(c.id, 1)} className="text-f-faint hover:text-f-text px-1">▶</button>
                   </div>
                 )}
               </th>
@@ -27,53 +35,52 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
             const ci = cycleInfo(d.iso);
             const reh = REHEARSALS.includes(d.iso);
             const newMonth = idx === 0 || days[idx - 1].month !== d.month;
+            const isToday = d.iso === today;
+            const isOpenDay = d.iso === openDayIso;
             return (
               <React.Fragment key={d.iso}>
                 {newMonth && (
-                  <tr>
-                    <td colSpan={crew.length + 1} className="sticky left-0 bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-2 py-1 text-xs font-semibold uppercase tracking-widest text-stone-500 dark:text-stone-400">
+                  <tr className="sticky z-20" style={{ top: 41 }}>
+                    <td colSpan={crew.length + 1} className="bg-f-panel border-b border-f-hair px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-f-faint">
                       {SK_MONTHS[d.month]} 2026
                     </td>
                   </tr>
                 )}
-                <tr className={ci.fifth ? "bg-amber-50 dark:bg-stone-800" : ""}>
+                <tr
+                  data-iso={d.iso}
+                  className={isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""}
+                >
                   <td
                     onClick={() => onDayClick && onDayClick(d.iso)}
-                    className={`sticky left-0 z-10 border border-stone-200 dark:border-stone-800 px-2 py-1 font-mono text-xs whitespace-nowrap ${onDayClick ? "cursor-pointer hover:brightness-95 dark:hover:brightness-125" : ""} ${reh ? "bg-violet-600 text-white" : ci.fifth ? "bg-amber-500 text-stone-950 font-bold" : d.weekend ? "bg-stone-100 text-stone-500 dark:bg-stone-900 dark:text-stone-400" : "bg-white dark:bg-stone-900"}`}
+                    className={`sticky left-0 z-10 border-b border-f-hair px-3.5 h-8 font-mono text-[11.5px] whitespace-nowrap ${onDayClick ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"} ${isOpenDay ? "shadow-[inset_3px_0_0_0_#ff4d17]" : ""}`}
                   >
-                    {d.day}.{d.month + 1}. {d.dow}
-                    <span className="ml-1 opacity-70">{reh ? "skúšky" : ci.n ? `c${ci.n}/${ci.pos}` : ""}</span>
-                    {nad?.[d.iso] && (nad[d.iso].depart || nad[d.iso].return) && (
-                      <span className="block text-[10px] opacity-80 leading-tight">
-                        NAD {nad[d.iso].depart || "—"}→{nad[d.iso].return || "—"}
-                      </span>
-                    )}
+                    <span className={reh ? "text-f-reh" : isToday ? "text-f-a font-bold" : ci.fifth ? "text-f-r font-semibold" : "text-f-text/90"}>
+                      {d.day}.{d.month + 1}. {d.dow}
+                    </span>
+                    <span className="ml-1 text-[9.5px] text-f-faint2">{reh ? "SKÚŠKY" : ci.n ? `${ci.n}/${ci.pos}` : ""}</span>
                   </td>
                   {crew.map((c) => {
                     const x = cellOf(d.iso, c.id);
                     const bad = x.off && (x.shift || x.duel);
-                    const bg = x.off
-                      ? "bg-red-600 dark:bg-red-800"
-                      : x.shift
-                      ? "bg-emerald-600 dark:bg-emerald-700"
-                      : x.duel
-                      ? "bg-pink-600 dark:bg-pink-700"
-                      : ci.fifth
-                      ? "bg-amber-50 dark:bg-stone-800"
-                      : "bg-white dark:bg-stone-900";
                     const k = d.iso + "|" + c.id;
                     const selected = bulkMode && selectedKeys?.has(k);
-                    const colored = Boolean(x.off || x.shift || x.duel);
                     return (
                       <td
                         key={c.id}
                         onClick={(e) => canEdit && onCellClick({ iso: d.iso, crewId: c.id }, e)}
-                        className={`relative border border-stone-200 dark:border-stone-800 px-1 py-1 text-center ${canEdit ? "cursor-pointer hover:brightness-95 dark:hover:brightness-125" : ""} ${bg} ${bad ? "ring-2 ring-inset ring-red-400" : ""} ${selected ? "ring-4 ring-inset ring-sky-400 bg-sky-100 dark:bg-sky-900/50" : ""}`}
+                        className={`relative border-b border-f-hair h-8 text-center ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""} ${bad ? "ring-2 ring-inset ring-red-500/70" : ""} ${selected ? "ring-2 ring-inset ring-f-accent bg-f-accent/10" : ""}`}
                       >
-                        {selected && <span className="absolute top-0 right-0 text-[10px] leading-none bg-sky-400 text-stone-950 font-bold px-0.5 rounded-bl">✓</span>}
-                        <span className={`text-xs font-semibold ${colored ? "text-white" : "text-stone-900 dark:text-stone-100"}`}>{x.shift || (x.off && !x.duel ? "×" : "")}</span>
-                        {x.duel && <span className="block text-[10px] font-bold leading-tight text-white/90">Duel</span>}
-                        {x.note && <span className={`block text-xs truncate ${colored ? "text-white/90" : "text-stone-700 dark:text-stone-200"}`}>{x.note}</span>}
+                        {selected && <span className="absolute top-0 right-0 text-[9px] leading-none bg-f-accent text-f-bg font-bold px-1 rounded-bl">✓</span>}
+                        <div className="flex flex-col items-center justify-center gap-0.5 leading-none">
+                          {x.shift && (
+                            <span className={`inline-block min-w-[22px] font-mono text-xs font-bold text-f-bg rounded px-1 py-0.5 ${SHIFT_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</span>
+                          )}
+                          {x.duel && (
+                            <span className="inline-block min-w-[34px] font-mono text-[9px] font-bold text-f-bg bg-f-duel rounded px-1 py-0.5 tracking-wide">DUEL</span>
+                          )}
+                          {x.off && !x.shift && !x.duel && <span className="text-f-accent text-base font-bold leading-none">×</span>}
+                          {x.note && <span className="text-[10px] text-f-muted truncate max-w-[70px]">{x.note}</span>}
+                        </div>
                       </td>
                     );
                   })}
@@ -84,10 +91,10 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
         </tbody>
         <tfoot>
           <tr>
-            <td className="sticky left-0 bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-2 py-1 text-xs text-stone-500 dark:text-stone-400">Počet smien</td>
+            <td className="sticky left-0 bg-f-panel border-t border-f-border2 px-3.5 py-1.5 text-[10px] uppercase tracking-wide text-f-faint">Počet smien</td>
             {crew.map((c) => {
               const n = Object.entries(cells).filter(([k, v]) => k.endsWith("|" + c.id) && v.shift).length;
-              return <td key={c.id} className="bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-1 py-1 text-center font-mono text-xs">{n}</td>;
+              return <td key={c.id} className="bg-f-panel border-t border-f-border2 px-1 py-1.5 text-center font-mono text-xs text-f-muted">{n}</td>;
             })}
           </tr>
         </tfoot>
