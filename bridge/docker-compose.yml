@@ -1,0 +1,14 @@
+# Záložná čítačka na naske (Synology/QNAP/akýkoľvek Docker).
+# Nepotrebuje verejnú IP ani presmerovanie portov — chodí iba von.
+services:
+  f18-bridge:
+    build: .
+    container_name: f18-bridge
+    restart: unless-stopped
+    environment:
+      BRIDGE_ID: "nas"
+      API_BASE: "https://api.kartmanko.cc"
+      AUTH_DIR: "/data/auth"
+      HOOK_SECRET: "${HOOK_SECRET}"   # daj do súboru .env vedľa tohto, nie sem
+    volumes:
+      - ./data:/data

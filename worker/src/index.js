@@ -40,7 +40,43 @@ import {
 const STATE_KEY = "state_v1";
 
 // "sadzby" = denné sadzby profesií (Fáza 2). Prázdne = appka použije predvolené.
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, log: [], pendingHook: [], version: 0 };
+// "chaty"  = sledované WhatsApp chaty (Fáza 3), kľúč = ID chatu. Nový chat sa sem
+//            zapíše ako nepovolený a jeho správy sa NEČÍTAJÚ, kým ho admin nezapne.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, log: [], pendingHook: [], version: 0 };
+
+/* ---------- WhatsApp bridge (Fáza 3) ----------
+   Bridge je čítačka WhatsAppu, ktorá beží mimo Cloudflare (Fly.io, prípadne aj naska
+   ako záloha). Môžu bežať dva naraz na tom istom čísle — WhatsApp dovolí viac
+   pripojených zariadení. Preto server musí vedieť, že tú istú správu dostane dvakrát:
+     - "hookmsg:<id>" v KV je pečiatka "toto som už spracoval" (drží 14 dní),
+     - a navyše je celé spracovanie napísané tak, aby ani dvojité vykonanie neuškodilo
+       (zapnúť "nemôže" dvakrát je to isté ako raz; do fronty sa tá istá správa
+       nepridá druhýkrát, lebo sa porovnáva msgId).
+   Tá druhá poistka je tam schválne: KV je len "časom konzistentné", takže keď obidva
+   bridge doručia správu v tej istej sekunde, pečiatku ešte nemusia vidieť. */
+const HOOKMSG_TTL = 14 * 24 * 60 * 60;
+const BRIDGE_TTL = 20 * 60; // po 20 minútach ticha bridge zmizne zo zoznamu živých
+const BRIDGE_KEY = (id) => "bridge:" + String(id || "").slice(0, 40);
+
+async function bridgePing(env, bridgeId, info) {
+  if (!bridgeId) return;
+  await env.ROZPIS_KV.put(
+    BRIDGE_KEY(bridgeId),
+    JSON.stringify({ id: bridgeId, ...info, poslednyKrat: new Date().toISOString() }),
+    { expirationTtl: BRIDGE_TTL },
+  );
+}
+
+async function readBridges(env) {
+  const list = await env.ROZPIS_KV.list({ prefix: "bridge:" });
+  const out = [];
+  for (const k of list.keys) {
+    const raw = await env.ROZPIS_KV.get(k.name);
+    if (!raw) continue;
+    try { out.push(JSON.parse(raw)); } catch { /* poškodený záznam preskoč */ }
+  }
+  return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
 
 function corsHeaders(env) {
   // POZOR: keď appka posiela prihlasovaciu cookie (credentials: "include"),
@@ -116,6 +152,7 @@ async function handlePostData(request, env) {
     cells: body.cells && typeof body.cells === "object" ? body.cells : current.cells,
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
     sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
+    chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
     log: Array.isArray(body.log) ? body.log.slice(0, 400) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
@@ -281,14 +318,57 @@ async function handlePostHook(request, env) {
     return json({ error: "Neplatné telo požiadavky." }, 400, env);
   }
 
-  const { groupId, phone, sender, text } = body;
+  // groupId je starý názov toho istého poľa — nechávam ho, nech starší bridge nespadne
+  const { bridgeId, msgId, chatId: chatIdRaw, groupId, chatName, phone, sender, text } = body;
+  const chatId = String(chatIdRaw || groupId || "").slice(0, 120);
 
-  // over, že správa ide zo správnej WhatsApp skupiny (ak je nakonfigurované) — inak ju ignoruj (nie chyba)
-  if (env.WHATSAPP_GROUP_ID && groupId && groupId !== env.WHATSAPP_GROUP_ID) {
-    return json({ ignored: true, reason: "iná skupina" }, 200, env);
-  }
+  // bridge sa každou správou hlási, že žije
+  if (bridgeId) await bridgePing(env, bridgeId, { stav: "beží" });
+
   if (!text || !String(text).trim()) {
     return json({ ignored: true, reason: "prázdny text" }, 200, env);
+  }
+
+  /* Tú istú správu dostaneme dvakrát vždy, keď bežia dva bridge (Fly.io + naska).
+     Pečiatku kontrolujeme HNEĎ na začiatku, ešte pred čítaním textu modelom —
+     nemá zmysel platiť dvakrát za to isté. */
+  const msgKey = msgId ? "hookmsg:" + String(msgId).slice(0, 120) : "";
+  if (msgKey) {
+    if (await env.ROZPIS_KV.get(msgKey)) {
+      return json({ duplicate: true, reason: "správu už spracoval druhý bridge" }, 200, env);
+    }
+    await env.ROZPIS_KV.put(msgKey, bridgeId || "1", { expirationTtl: HOOKMSG_TTL });
+  }
+
+  /* Neznámy chat sa NIKDY nečíta. Iba sa zapíše do zoznamu, aby si ho admin
+     v appke videl a mohol ho zapnúť. Toto je to isté pravidlo ako pri neznámom
+     telefónnom čísle: radšej nech appka navrhne, než aby konala sama. */
+  {
+    const state0 = await readState(env);
+    const chaty = { ...(state0.chaty || {}) };
+    const zaznam = chaty[chatId];
+    const menoChatu = String(chatName || "").slice(0, 120);
+
+    if (chatId && !zaznam) {
+      chaty[chatId] = {
+        id: chatId,
+        nazov: menoChatu || "(bez názvu)",
+        povoleny: false,
+        prvyKrat: new Date().toISOString(),
+        poslednaSprava: new Date().toISOString(),
+      };
+      const log = [{ t: new Date().toISOString(), text: `WhatsApp bridge: nový chat „${menoChatu || chatId}" — čaká na zapnutie adminom` }, ...state0.log].slice(0, 400);
+      await writeState(env, { ...state0, chaty, log, version: state0.version + 1 });
+      return json({ chatUnknown: true, chatId, reason: "chat ešte nie je zapnutý" }, 200, env);
+    }
+    if (chatId && !zaznam.povoleny) {
+      return json({ ignored: true, reason: "chat je vypnutý" }, 200, env);
+    }
+    if (chatId && (zaznam.nazov !== menoChatu && menoChatu)) {
+      // názov skupiny sa dá premenovať — drž ho aktuálny, ale kvôli tomu neruš nič iné
+      chaty[chatId] = { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() };
+      await writeState(env, { ...state0, chaty, version: state0.version + 1 });
+    }
   }
 
   const defaultMonth = Number(env.DEFAULT_HOOK_MONTH) || 8;
@@ -297,6 +377,11 @@ async function handlePostHook(request, env) {
     const clean = await callAnthropicText(env, TEXT_PROMPT_TEMPLATE(defaultMonth, SK_MONTHS[defaultMonth - 1]), String(text).slice(0, 2000));
     parsed = JSON.parse(clean);
   } catch (e) {
+    /* Pečiatku "už spracované" sme dali skôr, aby sa za tú istú správu neplatilo
+       dvakrát. Keď sa ale spracovanie nepodarilo, musí pečiatka zmiznúť — inak by
+       druhý bridge (aj neskorší pokus) správu zahodil ako duplikát a tá by sa
+       stratila potichu. To je presne to, čo sa diať nesmie. */
+    if (msgKey) await env.ROZPIS_KV.delete(msgKey);
     return json({ error: "Nepodarilo sa spracovať text správy: " + e.message }, 502, env);
   }
 
@@ -342,8 +427,16 @@ async function handlePostHook(request, env) {
   }
 
   // neznámy telefón -> NIKDY nezapisuj priamo, iba zaraď do fronty na potvrdenie adminom
+  const uzVoFronte = msgId && (state.pendingHook || []).some((e) => e.msgId && e.msgId === msgId);
+  if (uzVoFronte) {
+    // druhá poistka proti dvom bridgeom — pečiatka v KV mohla ešte nebyť vidieť
+    return json({ duplicate: true, reason: "správa už je vo fronte" }, 200, env);
+  }
   const entry = {
     id: "hook_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    msgId: msgId ? String(msgId).slice(0, 120) : "",
+    chatId,
+    chatName: String(chatName || "").slice(0, 120),
     ts: new Date().toISOString(),
     phone: phone || "",
     sender: sender || "",
@@ -357,6 +450,61 @@ async function handlePostHook(request, env) {
   const next = { ...state, pendingHook, version: state.version + 1 };
   await writeState(env, next);
   return json({ queued: true, id: entry.id, version: next.version }, 200, env);
+}
+
+/* Bridge sa raz za minútu ohlási, že žije, a pošle zoznam skupín, ktoré vidí.
+   Nové skupiny sa zapíšu ako VYPNUTÉ — admin si v appke odklikne, ktoré sa majú
+   čítať. Kým ich nezapne, appka z nich neprečíta ani písmeno. */
+async function handleBridgePing(request, env) {
+  if (!checkHookSecret(request, env)) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+
+  const bridgeId = String(body.bridgeId || "").slice(0, 40);
+  if (!bridgeId) return json({ error: "Chýba bridgeId." }, 400, env);
+
+  await bridgePing(env, bridgeId, {
+    stav: String(body.stav || "beží").slice(0, 60),
+    cislo: String(body.cislo || "").slice(0, 40),
+    verzia: String(body.verzia || "").slice(0, 20),
+  });
+
+  // doplň novoobjavené skupiny do zoznamu (vypnuté), názvy existujúcich zaktualizuj
+  const skupiny = Array.isArray(body.skupiny) ? body.skupiny.slice(0, 200) : [];
+  if (skupiny.length) {
+    const state = await readState(env);
+    const chaty = { ...(state.chaty || {}) };
+    let zmena = false;
+    for (const s of skupiny) {
+      const id = String(s?.id || "").slice(0, 120);
+      if (!id) continue;
+      const nazov = String(s?.nazov || "").slice(0, 120) || "(bez názvu)";
+      if (!chaty[id]) {
+        chaty[id] = { id, nazov, povoleny: false, prvyKrat: new Date().toISOString(), poslednaSprava: "" };
+        zmena = true;
+      } else if (chaty[id].nazov !== nazov) {
+        chaty[id] = { ...chaty[id], nazov };
+        zmena = true;
+      }
+    }
+    if (zmena) await writeState(env, { ...state, chaty, version: state.version + 1 });
+  }
+
+  const state = await readState(env);
+  // bridge si vypýta, ktoré chaty má vôbec posielať — nech zvyšok ani neopúšťa jeho stroj
+  const povolene = Object.values(state.chaty || {}).filter((c) => c.povoleny).map((c) => c.id);
+  return json({ ok: true, povoleneChaty: povolene }, 200, env);
+}
+
+async function handleBridgeStatus(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  return json({ bridges: await readBridges(env) }, 200, env);
 }
 
 export default {
@@ -398,6 +546,13 @@ export default {
     }
     if (url.pathname === "/version" && request.method === "GET") {
       return handleGetVersion(env);
+    }
+    // --- WhatsApp bridge (Fáza 3) ---
+    if (url.pathname === "/bridge/ping" && request.method === "POST") {
+      return handleBridgePing(request, env);
+    }
+    if (url.pathname === "/bridge/status" && request.method === "GET") {
+      return handleBridgeStatus(request, env);
     }
     if (url.pathname === "/hook" && request.method === "POST") {
       return handlePostHook(request, env);

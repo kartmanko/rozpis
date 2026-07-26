@@ -489,6 +489,12 @@ export function checkStateChange(user, current, next) {
     return { ok: false, error: "Sadzby smie meniť iba hlavný admin alebo hlavný produkčný." };
   }
 
+  // zapnutie/vypnutie sledovaného WhatsApp chatu (Fáza 3) — kto smie spracovať
+  // frontu, ten smie rozhodnúť aj o tom, ktoré chaty sa vôbec čítajú
+  if (changedPlain(current.chaty, next.chaty).length && !caps.pending) {
+    return { ok: false, error: "Sledované WhatsApp chaty smú meniť iba vedúci a admin." };
+  }
+
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };

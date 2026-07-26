@@ -91,14 +91,20 @@ const jsonPost = (path, body) => request(path, {
 /* ---------- rozpis ---------- */
 
 export async function fetchData() {
-  // { crew, cells, nad, sadzby, log, pendingHook, version }
+  // { crew, cells, nad, sadzby, chaty, log, pendingHook, version }
   return request("/data", { method: "GET" });
 }
 
 // Pozor: každá časť stavu, ktorú appka ukladá, musí byť vymenovaná aj tu — čo tu
-// chýba, to sa na server nikdy nepošle a ticho sa to stratí. "sadzby" sú z Fázy 2.
-export async function saveData({ crew, cells, nad, sadzby, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, sadzby, pendingHook, log, baseVersion });
+// chýba, to sa na server nikdy nepošle a ticho sa to stratí. "sadzby" sú z Fázy 2,
+// "chaty" (sledované WhatsApp skupiny) z Fázy 3.
+export async function saveData({ crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion });
+}
+
+/** Ktoré bridge (čítačky WhatsAppu) sa naposledy ozvali — Fáza 3. */
+export async function fetchBridges() {
+  return request("/bridge/status", { method: "GET" });
 }
 
 export async function parseScreenshot({ base64, mediaType, month }) {

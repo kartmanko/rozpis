@@ -1,0 +1,24 @@
+# Fly.io — hlavná čítačka WhatsAppu.
+# Názov appky treba pri prvom nasadení prípadne zmeniť, ak je už obsadený.
+app = "f18-bridge"
+primary_region = "waw"   # Varšava — najbližšie k Slovensku
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  BRIDGE_ID = "fly"
+  API_BASE = "https://api.kartmanko.cc"
+  AUTH_DIR = "/data/auth"
+
+# Prihlásenie do WhatsAppu musí prežiť reštart, inak sa QR pýta znova.
+[mounts]
+  source = "f18_auth"
+  destination = "/data"
+
+# Bridge nemá žiadny web — nič naň nechodí zvonku, iba on chodí von.
+# Preto tu zámerne nie je [http_service] ani žiadny port. Vedľajší efekt je dobrý:
+# bez služby Fly stroj nikdy sám neuspí, takže WhatsApp spojenie drží.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

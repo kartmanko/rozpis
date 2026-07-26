@@ -23,6 +23,7 @@ import LoginScreen from "./components/LoginScreen";
 import UsersPanel from "./components/UsersPanel";
 import SadzbyPanel from "./components/SadzbyPanel";
 import VykazyPanel from "./components/VykazyPanel";
+import ChatyPanel from "./components/ChatyPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
@@ -53,6 +54,7 @@ export default function App() {
   const [cells, setCells] = useState({}); // "iso|crewId" -> { off, shift, duel, note }
   const [sadzby, setSadzbyState] = useState({}); // profesia -> { den, duel, denDuel, nadcasPct } (Fáza 2)
   const [nad, setNadState] = useState({}); // "A"|"B"|"C"|"R"|"duel" -> { depart, return } — univerzálne, neviaže sa na dátum
+  const [chaty, setChatyState] = useState({}); // sledované WhatsApp skupiny (Fáza 3)
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -101,7 +103,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -227,6 +229,7 @@ export default function App() {
       setCells(DEMO_DATA.cells);
       setNadState(DEMO_DATA.nad);
       setSadzbyState({});
+      setChatyState({});
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -242,6 +245,7 @@ export default function App() {
       setCells(d.cells || {});
       setNadState(d.nad || {});
       setSadzbyState(d.sadzby || {});
+      setChatyState(d.chaty || {});
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -299,7 +303,7 @@ export default function App() {
       }
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, nad, sadzby, pendingHook, log, baseVersion: version });
+        const res = await saveData({ crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion: version });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -319,7 +323,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, pendingHook, log]);
+  }, [crew, cells, nad, sadzby, chaty, pendingHook, log]);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -417,6 +421,23 @@ export default function App() {
     });
     setDirty(true);
   }, []);
+
+  /* Zapnutie/vypnutie sledovaného WhatsApp chatu (Fáza 3).
+     Nový chat sa na serveri vždy založí ako vypnutý — tu sa iba prepína. */
+  const setChat = useCallback((chatId, patch) => {
+    setChatyState((prev) => {
+      const cur = prev[chatId];
+      if (!cur) return prev;
+      return { ...prev, [chatId]: { ...cur, ...patch } };
+    });
+    setDirty(true);
+  }, []);
+
+  // koľko skupín čaká na rozhodnutie (ani zapnuté, ani vedome vypnuté)
+  const novychChatov = useMemo(
+    () => Object.values(chaty || {}).filter((c) => !c.povoleny && !c.rozhodnute).length,
+    [chaty],
+  );
 
   /* --- potvrdenie/zahodenie nepriradenej správy z WhatsApp bridge --- */
   const resolveHook = useCallback(
@@ -795,6 +816,12 @@ export default function App() {
                         {pendingHook.length > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
                       </button>
                     )}
+                    {caps.pending && (
+                      <button onClick={() => togglePanel("chaty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
+                        WhatsApp chaty
+                        {novychChatov > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{novychChatov}</span>}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -877,6 +904,9 @@ export default function App() {
       )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
+      {panel === "chaty" && caps.pending && (
+        <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onClose={() => setPanel(null)} />
+      )}
       {panel === "hook" && caps.pending && (
         <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} onResolve={resolveHook} onClose={() => setPanel(null)} />
       )}

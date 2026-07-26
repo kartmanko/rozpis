@@ -20,6 +20,8 @@ export default function WhatsAppQueuePanel({ pendingHook, crew, onResolve, onClo
                 {r.sender || "neznámy odosielateľ"} {r.phone && <span className="text-f-muted2 font-mono">{r.phone}</span>}
                 {r.isCorrection && <span className="px-1.5 py-0.5 rounded bg-f-r text-f-ink text-[10px] font-bold uppercase">Oprava</span>}
               </div>
+              {/* z ktorej skupiny správa prišla (Fáza 3 — sleduje sa viac chatov naraz) */}
+              {r.chatName && <div className="text-[10px] text-f-faint2">skupina: {r.chatName}</div>}
               <div className="text-f-muted2">{r.text}</div>
               {r.noRestrictions && <div className="font-mono text-f-muted">bez obmedzení</div>}
               {(r.unavailable || []).length > 0 && (

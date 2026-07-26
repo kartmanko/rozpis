@@ -1,0 +1,16 @@
+{
+  "name": "f18-whatsapp-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Čítačka WhatsAppu pre FARMA 18 — rozpis štábu. Iba číta, nikdy nič nepošle.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "baileys": "6.7.23",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
