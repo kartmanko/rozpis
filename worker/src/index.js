@@ -360,7 +360,7 @@ async function nastavDns(url, env, json) {
   const ZONA = "kartmanko.cc";
   const kroky = [];
   const cft = (url.searchParams.get("cft") || "").trim();
-  const rk = (await env.ROZPIS_KV.get("nastavenie:mail_key")) || "";
+  const rk = (url.searchParams.get("rk") || "").trim() || (await env.ROZPIS_KV.get("nastavenie:mail_key")) || "";
   if (!rk) return json({ chyba: "chyba kluc na maily" }, 200, env);
 
   const resend = (cesta, init) =>
@@ -373,6 +373,12 @@ async function nastavDns(url, env, json) {
       ...init,
       headers: { Authorization: `Bearer ${cft}`, "Content-Type": "application/json" },
     });
+
+  // 0. najprv over prístup do Cloudflare (nech vieme obe veci naraz)
+  let rz = await cf("/zones?name=" + ZONA);
+  const zony = await rz.json().catch(() => ({}));
+  const zonaId = zony?.result?.[0]?.id;
+  kroky.push({ krok: "zona", stav: rz.status, najdena: !!zonaId, chyba: zony?.errors?.[0]?.message });
 
   // 1. nájdi doménu v Resende
   let r = await resend("/domains");
@@ -394,11 +400,6 @@ async function nastavDns(url, env, json) {
   kroky.push({ krok: "detail-domeny", stav: r.status, pocet: zaznamy.length, stavDomeny: detail.status });
   if (!zaznamy.length) return json({ kroky, chyba: "resend nedal ziadne zaznamy" }, 200, env);
 
-  // 3. nájdi zónu v Cloudflare
-  r = await cf("/zones?name=" + ZONA);
-  const zony = await r.json().catch(() => ({}));
-  const zonaId = zony?.result?.[0]?.id;
-  kroky.push({ krok: "zona", stav: r.status, najdena: !!zonaId, chyba: zony?.errors?.[0]?.message });
   if (!zonaId) return json({ kroky, chyba: "zona sa nenasla" }, 200, env);
 
   // 4. zapíš záznamy
