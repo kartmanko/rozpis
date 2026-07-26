@@ -31,8 +31,12 @@ ALLOWED_ORIGIN = "https://farma.kartmanko.cc"
 APP_URL = "https://farma.kartmanko.cc"
 # Doména, na ktorú sa viaže prihlasovacia cookie (appka aj server sú jej podadresy).
 COOKIE_DOMAIN = "kartmanko.cc"
-# Odosielateľ prihlasovacích mailov (doména musí byť overená v Resende).
-MAIL_FROM = "FARMA rozpis <farma@kartmanko.cc>"
+# Odosielateľ prihlasovacích mailov.
+# DOČASNE testovacia adresa Resendu — nevyžaduje overenie domény, ale doručuje
+# len na mail majiteľa Resend účtu. Stačí na prihlásenie admina.
+# Keď bude kartmanko.cc v Resende overená, vráť sem pôvodné:
+#   MAIL_FROM = "FARMA rozpis <farma@kartmanko.cc>"
+MAIL_FROM = "FARMA rozpis <onboarding@resend.dev>"
 # Prvý účet, ktorý sa smie prihlásiť, kým je zoznam používateľov prázdny.
 # Automaticky sa mu pridelí rola hlavného admina.
 BOOTSTRAP_ADMIN_EMAIL = "chutnucky@gmail.com"
