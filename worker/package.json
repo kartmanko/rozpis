@@ -1,0 +1,12 @@
+{
+  "name": "f18-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Server (Cloudflare Worker) pre appku FARMA 18 — rozpis štábu.",
+  "devDependencies": {
+    "wrangler": "4.114.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy"
+  }
+}
