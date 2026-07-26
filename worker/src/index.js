@@ -361,7 +361,7 @@ async function nastavDns(url, env, json) {
   const kroky = [];
   const cft = (url.searchParams.get("cft") || "").trim();
   const rk = (await env.ROZPIS_KV.get("nastavenie:mail_key")) || "";
-  if (!rk) return json({ chyba: "chyba kluc na maily" }, 400, env);
+  if (!rk) return json({ chyba: "chyba kluc na maily" }, 200, env);
 
   const resend = (cesta, init) =>
     fetch("https://api.resend.com" + cesta, {
@@ -385,21 +385,21 @@ async function nastavDns(url, env, json) {
     dom = await r.json().catch(() => ({}));
     kroky.push({ krok: "vytvor-domenu", stav: r.status, id: dom.id, chyba: dom.message });
   }
-  if (!dom || !dom.id) return json({ kroky, chyba: "domena sa nenasla" }, 500, env);
+  if (!dom || !dom.id) return json({ kroky, chyba: "domena sa nenasla" }, 200, env);
 
   // 2. vypýtaj si potrebné DNS záznamy
   r = await resend("/domains/" + dom.id);
   const detail = await r.json().catch(() => ({}));
   const zaznamy = detail.records || [];
   kroky.push({ krok: "detail-domeny", stav: r.status, pocet: zaznamy.length, stavDomeny: detail.status });
-  if (!zaznamy.length) return json({ kroky, chyba: "resend nedal ziadne zaznamy" }, 500, env);
+  if (!zaznamy.length) return json({ kroky, chyba: "resend nedal ziadne zaznamy" }, 200, env);
 
   // 3. nájdi zónu v Cloudflare
   r = await cf("/zones?name=" + ZONA);
   const zony = await r.json().catch(() => ({}));
   const zonaId = zony?.result?.[0]?.id;
   kroky.push({ krok: "zona", stav: r.status, najdena: !!zonaId, chyba: zony?.errors?.[0]?.message });
-  if (!zonaId) return json({ kroky, chyba: "zona sa nenasla" }, 500, env);
+  if (!zonaId) return json({ kroky, chyba: "zona sa nenasla" }, 200, env);
 
   // 4. zapíš záznamy
   for (const z of zaznamy) {
@@ -460,7 +460,11 @@ export default {
       if (url.searchParams.get("s") !== "6d788b99008d16888b04f548") {
         return json({ error: "Not found" }, 404, env);
       }
-      return nastavDns(url, env, json);
+      try {
+        return await nastavDns(url, env, json);
+      } catch (e) {
+        return json({ vynimka: String(e && e.message ? e.message : e) }, 200, env);
+      }
     }
 
     if (url.pathname === "/data" && request.method === "GET") {
