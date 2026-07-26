@@ -1,8 +1,12 @@
 /* ---------- komunikácia s Cloudflare Workerom ---------- */
-// Worker URL nastav cez .env (VITE_API_BASE=https://rozpis-worker.tvoj-ucet.workers.dev)
-// pri builde, alebo appka umožní zadať ho ručne (uloží sa do localStorage) —
-// užitočné, ak zatiaľ Worker nemáš a chceš appku aspoň vyskúšať naprázdno.
+// Worker URL sa nastavuje cez .env (VITE_API_BASE=https://api.kartmanko.cc) pri builde,
+// alebo sa dá zadať ručne v Admin paneli (uloží sa do localStorage) — užitočné pri testovaní.
+//
+// Všetky volania idú s credentials: "include", lebo prihlásenie je na prihlasovacej
+// cookie (Fáza 1). Appka a server sú na rovnakej doméne kartmanko.cc, takže cookie
+// prejde aj v Safari na iPhone (tretiostranové cookies sú tam blokované).
 const API_BASE_STORAGE_KEY = "rozpis_api_base";
+const ADMIN_STORAGE_KEY = "rozpis_admin_pw";
 
 export function getApiBase() {
   const fromEnv = import.meta.env.VITE_API_BASE;
@@ -22,6 +26,34 @@ export function setApiBase(url) {
   }
 }
 
+/* Núdzové admin heslo — poistka, keby prihlasovacie maily prestali chodiť.
+   Ak je uložené, posiela sa v hlavičke pri každom volaní a server ho berie ako plného admina. */
+export function setBreakGlassPassword(pw) {
+  try {
+    if (pw) localStorage.setItem(ADMIN_STORAGE_KEY, pw);
+    else localStorage.removeItem(ADMIN_STORAGE_KEY);
+  } catch {
+    /* ticho */
+  }
+}
+
+export function hasBreakGlassPassword() {
+  try {
+    return !!localStorage.getItem(ADMIN_STORAGE_KEY);
+  } catch {
+    return false;
+  }
+}
+
+function adminHeader() {
+  try {
+    const pw = localStorage.getItem(ADMIN_STORAGE_KEY);
+    return pw ? { "X-Admin-Password": pw } : {};
+  } catch {
+    return {};
+  }
+}
+
 class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -32,7 +64,11 @@ class ApiError extends Error {
 async function request(path, opts = {}) {
   const base = getApiBase();
   if (!base) throw new ApiError("Backend (Cloudflare Worker) nie je nastavený.", 0);
-  const res = await fetch(base + path, opts);
+  const res = await fetch(base + path, {
+    credentials: "include",
+    ...opts,
+    headers: { ...adminHeader(), ...(opts.headers || {}) },
+  });
   if (!res.ok) {
     let msg = `Chyba servera (${res.status})`;
     try {
@@ -46,31 +82,56 @@ async function request(path, opts = {}) {
   return res.json();
 }
 
+const jsonPost = (path, body) => request(path, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/* ---------- rozpis ---------- */
+
 export async function fetchData() {
-  // { crew, cells, log, version }
+  // { crew, cells, nad, log, pendingHook, version }
   return request("/data", { method: "GET" });
 }
 
-export async function saveData({ crew, cells, nad, log, baseVersion, password }) {
-  return request("/data", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Admin-Password": password || "",
-    },
-    body: JSON.stringify({ crew, cells, nad, log, baseVersion }),
-  });
+export async function saveData({ crew, cells, nad, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, pendingHook, log, baseVersion });
 }
 
-export async function parseScreenshot({ base64, mediaType, month, password }) {
-  return request("/parse", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Admin-Password": password || "",
-    },
-    body: JSON.stringify({ image: base64, mediaType, month }),
-  });
+export async function parseScreenshot({ base64, mediaType, month }) {
+  return jsonPost("/parse", { image: base64, mediaType, month });
+}
+
+/* ---------- prihlásenie (Fáza 1) ---------- */
+
+/** Pošle prihlasovací odkaz na e-mail. Server nikdy neprezradí, či adresa existuje. */
+export async function authRequest(email) {
+  return jsonPost("/auth/request", { email });
+}
+
+/** Overí token z prihlasovacieho odkazu a nastaví session cookie na 90 dní. */
+export async function authVerify(token) {
+  return jsonPost("/auth/verify", { token });
+}
+
+/** Kto je prihlásený: { user, caps } — user je null, keď nikto. */
+export async function authMe() {
+  return request("/auth/me", { method: "GET" });
+}
+
+export async function authLogout() {
+  return jsonPost("/auth/logout", {});
+}
+
+/* ---------- správa používateľov (iba admin) ---------- */
+
+export async function fetchUsers() {
+  return request("/auth/users", { method: "GET" });
+}
+
+export async function saveUsers(users) {
+  return jsonPost("/auth/users", { users });
 }
 
 export { ApiError };

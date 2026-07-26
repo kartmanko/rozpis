@@ -2,7 +2,7 @@ import { useState } from "react";
 import { guessCrew } from "../matching";
 import { parseScreenshot, ApiError } from "../api";
 
-export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, setStatus, adminPassword }) {
+export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, setStatus }) {
   const [month, setMonth] = useState(8);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState([]); // { sender, phone, text, unavailable[], noRestrictions, crewId }
@@ -19,7 +19,6 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
           base64: b64,
           mediaType: f.type || "image/png",
           month,
-          password: adminPassword,
         });
         (parsed.items || parsed || []).forEach((p) =>
           found.push({ ...p, crewId: guessCrew(crew, p.sender, p.phone) })

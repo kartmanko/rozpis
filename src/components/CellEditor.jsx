@@ -2,9 +2,32 @@ import { DAY_SHIFTS } from "../constants";
 
 const SHIFT_ON = { A: "bg-f-a", B: "bg-f-b", C: "bg-f-c", R: "bg-f-r" };
 
-export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate }) {
+// access: "full" = celá bunka, "off" = iba prepínač "nemôžem" (vlastný stĺpec člena štábu)
+export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate, access = "full" }) {
   const person = crew.find((c) => c.id === sel.crewId);
   const allowDuel = (person?.role || "kamera") === "kamera";
+
+  if (access === "off") {
+    return (
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-f-panel3 border-t-[3px] border-f-accent p-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] no-print">
+        <div className="flex items-center gap-2 mb-2.5">
+          <div className="text-sm font-semibold text-f-text">{person?.name} — {skDate(sel.iso)}</div>
+          <div className="grow" />
+          <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
+        </div>
+        <button
+          onClick={() => onSet({ off: !cell.off })}
+          className={`w-full px-3 py-3 rounded-lg text-sm font-bold transition-colors ${cell.off ? "bg-f-accent text-f-ink" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}
+        >
+          {cell.off ? "× V tento deň nemôžem (klikni pre zrušenie)" : "Označiť: v tento deň nemôžem"}
+        </button>
+        <div className="text-xs text-f-faint mt-2">
+          Smeny prideľuje vedúci — ty si tu označuješ iba dni, keď nemôžeš. Zmena sa uloží hneď.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 bg-f-panel3 border-t-[3px] border-f-accent p-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] no-print">
       <div className="flex items-center gap-2 mb-2.5">
