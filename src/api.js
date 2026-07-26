@@ -98,8 +98,9 @@ export async function fetchData() {
 // Pozor: každá časť stavu, ktorú appka ukladá, musí byť vymenovaná aj tu — čo tu
 // chýba, to sa na server nikdy nepošle a ticho sa to stratí. "sadzby" sú z Fázy 2,
 // "chaty" (sledované WhatsApp skupiny) z Fázy 3.
-export async function saveData({ crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion });
+// "reporty" (denné reporty réžie) z Fázy 4.
+export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion });
 }
 
 /** Ktoré bridge (čítačky WhatsAppu) sa naposledy ozvali — Fáza 3. */

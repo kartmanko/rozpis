@@ -209,6 +209,9 @@ async function spusti() {
           msgId: msg.key?.id || "",
           chatId,
           chatName: nazvyChatov.get(chatId) || "",
+          // kedy bola správa naozaj odoslaná — pri denných reportoch (Fáza 4) je to
+          // záložný dátum dňa, keď sa dátum nedá vyčítať priamo z textu
+          ts: Number(msg.messageTimestamp) || 0,
           phone: cisloOdosielatela(msg),
           sender: msg.pushName || "",
           text,

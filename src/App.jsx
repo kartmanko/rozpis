@@ -24,6 +24,7 @@ import UsersPanel from "./components/UsersPanel";
 import SadzbyPanel from "./components/SadzbyPanel";
 import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
+import ReportyPanel from "./components/ReportyPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
@@ -55,6 +56,7 @@ export default function App() {
   const [sadzby, setSadzbyState] = useState({}); // profesia -> { den, duel, denDuel, nadcasPct } (Fáza 2)
   const [nad, setNadState] = useState({}); // "A"|"B"|"C"|"R"|"duel" -> { depart, return } — univerzálne, neviaže sa na dátum
   const [chaty, setChatyState] = useState({}); // sledované WhatsApp skupiny (Fáza 3)
+  const [reporty, setReportyState] = useState({}); // denné reporty réžie (Fáza 4)
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -103,7 +105,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -230,6 +232,7 @@ export default function App() {
       setNadState(DEMO_DATA.nad);
       setSadzbyState({});
       setChatyState({});
+      setReportyState({});
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -246,6 +249,7 @@ export default function App() {
       setNadState(d.nad || {});
       setSadzbyState(d.sadzby || {});
       setChatyState(d.chaty || {});
+      setReportyState(d.reporty || {});
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -303,7 +307,7 @@ export default function App() {
       }
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, nad, sadzby, chaty, pendingHook, log, baseVersion: version });
+        const res = await saveData({ crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion: version });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -323,7 +327,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, pendingHook, log]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, pendingHook, log]);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -432,6 +436,48 @@ export default function App() {
     });
     setDirty(true);
   }, []);
+
+  /* Denné reporty (Fáza 4). Appka ich nevytvára — chodia z WhatsAppu cez server.
+     Cez appku sa dá reportu iba prehodiť deň (keď ho server odhadol podľa dňa
+     doručenia) alebo ho zmazať. Text sa nikdy nemení. */
+  const setReportDatum = useCallback((id, datum) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(datum || ""))) return;
+    setReportyState((prev) => {
+      const cur = prev[id];
+      if (!cur || cur.datum === datum) return prev;
+      // "rucne" = deň potvrdil človek, takže report už nesvieti ako nedoriešený
+      return { ...prev, [id]: { ...cur, datum, zdrojDatumu: "rucne" } };
+    });
+    addLog(`Report prehodený na ${datum}`);
+    setDirty(true);
+  }, [addLog]);
+
+  // "deň sedí" — potvrdenie odhadnutého dňa bez toho, aby sa dátum menil
+  const potvrdReportDen = useCallback((id) => {
+    setReportyState((prev) => {
+      const cur = prev[id];
+      if (!cur) return prev;
+      return { ...prev, [id]: { ...cur, zdrojDatumu: "rucne" } };
+    });
+    setDirty(true);
+  }, []);
+
+  const zmazReport = useCallback((id) => {
+    setReportyState((prev) => {
+      if (!prev[id]) return prev;
+      const out = { ...prev };
+      delete out[id];
+      return out;
+    });
+    addLog("Report zmazaný");
+    setDirty(true);
+  }, [addLog]);
+
+  // reporty, ktorým server iba odhadol deň podľa dňa doručenia — čakajú na potvrdenie
+  const reportovNaPotvrdenie = useMemo(
+    () => Object.values(reporty || {}).filter((r) => r.zdrojDatumu === "sprava").length,
+    [reporty],
+  );
 
   // koľko skupín čaká na rozhodnutie (ani zapnuté, ani vedome vypnuté)
   const novychChatov = useMemo(
@@ -795,6 +841,10 @@ export default function App() {
                 </div>
                 <button onClick={() => togglePanel("vykazy")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Výkazy</button>
                 <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
+                <button onClick={() => togglePanel("reporty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
+                  Denné reporty
+                  {caps.pending && reportovNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{reportovNaPotvrdenie}</span>}
+                </button>
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Môj účet</button>
                 {caps.users && (
@@ -904,6 +954,16 @@ export default function App() {
       )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
+      {panel === "reporty" && (
+        <ReportyPanel
+          reporty={reporty}
+          canEdit={!!caps.pending}
+          onSetDatum={setReportDatum}
+          onPotvrdDen={potvrdReportDen}
+          onZmazat={zmazReport}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onClose={() => setPanel(null)} />
       )}
@@ -950,6 +1010,7 @@ export default function App() {
           iso={dayDetailIso}
           crew={crew}
           cellOf={cellOf}
+          reporty={reporty}
           onClose={() => setDayDetailIso(null)}
         />
       )}

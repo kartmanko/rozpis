@@ -39,10 +39,18 @@ import {
 
 const STATE_KEY = "state_v1";
 
-// "sadzby" = denné sadzby profesií (Fáza 2). Prázdne = appka použije predvolené.
-// "chaty"  = sledované WhatsApp chaty (Fáza 3), kľúč = ID chatu. Nový chat sa sem
-//            zapíše ako nepovolený a jeho správy sa NEČÍTAJÚ, kým ho admin nezapne.
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, log: [], pendingHook: [], version: 0 };
+// "sadzby"  = denné sadzby profesií (Fáza 2). Prázdne = appka použije predvolené.
+// "chaty"   = sledované WhatsApp chaty (Fáza 3), kľúč = ID chatu. Nový chat sa sem
+//             zapíše ako nepovolený a jeho správy sa NEČÍTAJÚ, kým ho admin nezapne.
+//             Pole "druh" hovorí, čo sa so správami robí: "dostupnost" (predvolené,
+//             hľadá sa v nich, kto kedy nemôže) alebo "report" (Fáza 4 — denné reporty
+//             od réžie; text sa neanalyzuje, hľadá sa v ňom iba dátum).
+// "reporty"  = denné reporty (Fáza 4), kľúč = id reportu. Jedna správa = jeden report.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, log: [], pendingHook: [], version: 0 };
+
+// Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
+// aby jeden pokazený bridge nezaplnil KV.
+const MAX_REPORTOV = 1000;
 
 /* ---------- WhatsApp bridge (Fáza 3) ----------
    Bridge je čítačka WhatsAppu, ktorá beží mimo Cloudflare (Fly.io, prípadne aj naska
@@ -153,6 +161,7 @@ async function handlePostData(request, env) {
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
     sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
     chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
+    reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
     log: Array.isArray(body.log) ? body.log.slice(0, 400) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
@@ -202,7 +211,42 @@ Pravidlá:
 - Ak správa vôbec nerieši dostupnosť (pozdrav, emoji, organizačná správa), vráť všetky polia prázdne/false.
 - Ak si dátumom neistý, radšej ho vynechaj, než aby si hádal.`;
 
+/* Fáza 4 — denné reporty od réžie.
+   Text reportu sa NEROZOBERÁ. Jediné, čo z neho potrebujeme, je dátum dňa, ktorého sa
+   report týka. Keď v texte dátum nie je, použije sa dátum samotnej správy. */
+const REPORT_DATE_PROMPT = (dnesIso) => `Dostávaš text denného reportu z natáčania. Tvoja jediná úloha je nájsť DÁTUM DŇA, ktorého sa report týka.
+Vráť IBA JSON objekt, bez markdownu a bez vysvetlenia, presne v tvare:
+{"datum":"2026-08-15"}
+alebo, ak v texte žiadny dátum nie je:
+{"datum":null}
+Pravidlá:
+- Správa bola odoslaná ${dnesIso}. Ak text uvádza deň a mesiac bez roka, doplň rok tak, aby dátum bol čo najbližšie k dátumu odoslania.
+- Beri dátum, o ktorom report hovorí ("report z 15.8.", "streda 12. augusta", "za 3. deň natáčania 5.8.2026"), nie dátumy spomenuté len mimochodom (napr. plán na budúci týždeň).
+- Ak je v texte viac dátumov, vyber ten, ktorý označuje deň, za ktorý je report písaný — spravidla ten prvý alebo ten v hlavičke.
+- Formát odpovede je vždy YYYY-MM-DD.
+- Neistota = null. Radšej nič, než zlý dátum.
+- Nič iné z textu nespracúvaj a nekomentuj.`;
+
 const SK_MONTHS = ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"];
+
+/** Prísna kontrola ISO dátumu — modelu sa nedá veriť naslepo. */
+const jeIso = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + "T00:00:00Z"));
+
+/** Dátum správy: bridge posiela ts (sekundy alebo ISO), inak berieme "teraz". */
+function datumSpravy(ts) {
+  if (typeof ts === "number" && ts > 0) {
+    const ms = ts > 1e12 ? ts : ts * 1000; // WhatsApp posiela sekundy
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (typeof ts === "string" && ts) {
+    const d = new Date(ts);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+const isoDna = (d) => d.toISOString().slice(0, 10);
 
 async function callAnthropicText(env, prompt, userText) {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -343,6 +387,8 @@ async function handlePostHook(request, env) {
   /* Neznámy chat sa NIKDY nečíta. Iba sa zapíše do zoznamu, aby si ho admin
      v appke videl a mohol ho zapnúť. Toto je to isté pravidlo ako pri neznámom
      telefónnom čísle: radšej nech appka navrhne, než aby konala sama. */
+  // "dostupnost" = kto kedy nemôže (Fáza 3), "report" = denný report réžie (Fáza 4)
+  let druhChatu = "dostupnost";
   {
     const state0 = await readState(env);
     const chaty = { ...(state0.chaty || {}) };
@@ -369,6 +415,66 @@ async function handlePostHook(request, env) {
       chaty[chatId] = { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() };
       await writeState(env, { ...state0, chaty, version: state0.version + 1 });
     }
+    if (zaznam && zaznam.druh === "report") druhChatu = "report";
+  }
+
+  /* ---------- Fáza 4: chat s dennými reportami ----------
+     Jedna správa = jeden report. Obsah sa nerozoberá, iba sa k nemu nájde deň:
+     najprv sa skúsi dátum priamo z textu, a keď tam nie je, použije sa dátum,
+     kedy správa prišla. Report sa nikam nezapisuje do rozpisu — iba sa uloží
+     a ukáže pri tom dni. */
+  if (druhChatu === "report") {
+    const prisloDna = datumSpravy(body.ts);
+    let datum = isoDna(prisloDna);
+    let zdroj = "sprava";
+
+    if (env.ANTHROPIC_API_KEY) {
+      try {
+        const clean = await callAnthropicText(env, REPORT_DATE_PROMPT(isoDna(prisloDna)), String(text).slice(0, 4000));
+        const najdeny = JSON.parse(clean)?.datum;
+        if (jeIso(najdeny)) { datum = najdeny; zdroj = "text"; }
+      } catch {
+        /* Keď hľadanie dátumu zlyhá, report sa NESMIE stratiť — priradí sa k dňu,
+           kedy správa prišla, a admin ho v appke vie prehodiť inam. Preto sa tu
+           pečiatka "už spracované" ani nemaže: správa je uložená a hotovo. */
+      }
+    }
+
+    const state = await readState(env);
+    const reporty = { ...(state.reporty || {}) };
+
+    // druhý bridge doručí tú istú správu — poistka aj bez pečiatky v KV
+    if (msgId && Object.values(reporty).some((r) => r.msgId === String(msgId).slice(0, 120))) {
+      return json({ duplicate: true, reason: "report už je uložený" }, 200, env);
+    }
+
+    const id = "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    reporty[id] = {
+      id,
+      datum,
+      zdrojDatumu: zdroj,          // "text" = z textu reportu, "sprava" = podľa dňa doručenia
+      prislo: prisloDna.toISOString(),
+      autor: String(sender || "").slice(0, 80),
+      telefon: String(phone || "").slice(0, 40),
+      chatId,
+      chatName: String(chatName || "").slice(0, 120),
+      msgId: msgId ? String(msgId).slice(0, 120) : "",
+      text: String(text).slice(0, 8000),
+    };
+
+    // strop: keby niečo zlyhalo, nech to nezaplní celé KV — zahoď najstaršie
+    const kluce = Object.keys(reporty);
+    if (kluce.length > MAX_REPORTOV) {
+      kluce
+        .sort((a, b) => String(reporty[a].prislo).localeCompare(String(reporty[b].prislo)))
+        .slice(0, kluce.length - MAX_REPORTOV)
+        .forEach((k) => delete reporty[k]);
+    }
+
+    const log = [{ t: new Date().toISOString(), text: `Report na ${datum}${zdroj === "sprava" ? " (dátum podľa dňa doručenia)" : ""} — ${String(sender || "neznámy").slice(0, 40)}` }, ...state.log].slice(0, 400);
+    const nextState = { ...state, reporty, log, version: state.version + 1 };
+    await writeState(env, nextState);
+    return json({ report: true, id, datum, zdrojDatumu: zdroj, version: nextState.version }, 200, env);
   }
 
   const defaultMonth = Number(env.DEFAULT_HOOK_MONTH) || 8;

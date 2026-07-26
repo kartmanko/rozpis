@@ -100,8 +100,10 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
 
       <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-faint mb-1.5">Skupiny</div>
       <div className="text-[11px] text-f-faint2 mb-2 leading-relaxed">
-        Zapni iba tie skupiny, z ktorých sa má čítať dostupnosť. Z vypnutých sa nečíta nič.
-        Z WhatsAppu sa aj tak nikdy nedopĺňajú smeny — iba červená, teda dni, keď niekto nemôže.
+        Zapni iba tie skupiny, z ktorých sa má čítať. Z vypnutých sa nečíta nič.
+        Pri zapnutej skupine sa dá vybrať, čo sa v nej hľadá:
+        <b> Dostupnosť</b> — kto ktorý deň nemôže (smeny sa z WhatsAppu nikdy nedopĺňajú, iba červená), alebo
+        <b> Reporty</b> — denné reporty réžie, kde sa text vôbec nerozoberá a hľadá sa v ňom iba deň.
       </div>
 
       {!zoznam.length && (
@@ -135,6 +137,31 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
               <span className={`px-2 py-1 rounded-lg text-[11px] font-bold shrink-0 ${c.povoleny ? "text-f-a" : "text-f-faint2"}`}>
                 {c.povoleny ? "Číta sa" : "Vypnuté"}
               </span>
+            )}
+
+            {/* Druh skupiny (Fáza 4). Má zmysel iba pri zapnutej skupine — pri vypnutej
+                sa aj tak nečíta nič, tak by prepínač len mátol. */}
+            {c.povoleny && (
+              <div className="w-full flex gap-1">
+                {[
+                  { k: "dostupnost", l: "Dostupnosť" },
+                  { k: "report", l: "Reporty" },
+                ].map((d) => {
+                  const aktivny = (c.druh || "dostupnost") === d.k;
+                  return (
+                    <button
+                      key={d.k}
+                      disabled={!canEdit}
+                      onClick={() => onSetChat(c.id, { druh: d.k })}
+                      className={`flex-1 px-2 py-1 rounded-md text-[11px] font-bold transition-colors disabled:opacity-60 ${
+                        aktivny ? "bg-f-accent text-f-ink" : "bg-f-panel text-f-muted hover:bg-f-border"
+                      }`}
+                    >
+                      {d.l}
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         ))}

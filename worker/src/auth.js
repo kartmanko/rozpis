@@ -495,6 +495,13 @@ export function checkStateChange(user, current, next) {
     return { ok: false, error: "Sledované WhatsApp chaty smú meniť iba vedúci a admin." };
   }
 
+  // denné reporty (Fáza 4) — appka ich sama nevytvára, tie chodia z WhatsAppu.
+  // Cez appku sa dá reportu iba prehodiť deň alebo ho zmazať, a to smie ten,
+  // kto spracúva frontu (vedúci a admin). Ostatní ich vidia, ale nemenia.
+  if (changedPlain(current.reporty, next.reporty).length && !caps.pending) {
+    return { ok: false, error: "Denné reporty smú meniť iba vedúci a admin." };
+  }
+
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };

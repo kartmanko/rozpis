@@ -9,13 +9,19 @@ const CHIP_BADGE = {
   R: "bg-f-r",
 };
 
-export default function DayDetail({ iso, crew, cellOf, onClose }) {
+export default function DayDetail({ iso, crew, cellOf, reporty, onClose }) {
   const ci = cycleInfo(iso);
   const reh = REHEARSALS.includes(iso);
   const d = new Date(toUTC(iso));
   const dayNum = d.getUTCDate();
   const monthIdx = d.getUTCMonth();
   const dowFull = SK_DAYS_FULL[d.getUTCDay()];
+
+  /* Denné reporty priradené k tomuto dňu (Fáza 4). Môže ich byť aj viac —
+     každá správa z reportovej skupiny je samostatný report. */
+  const dnesneReporty = Object.values(reporty || {})
+    .filter((r) => r.datum === iso)
+    .sort((a, b) => String(a.prislo).localeCompare(String(b.prislo)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 no-print" onClick={onClose}>
@@ -54,6 +60,23 @@ export default function DayDetail({ iso, crew, cellOf, onClose }) {
             </div>
           );
         })}
+
+        {dnesneReporty.length > 0 && (
+          <div className="border-t border-f-hair pt-2.5 mt-2.5">
+            <div className="text-[9.5px] font-bold tracking-wider text-f-faint uppercase mb-1.5">
+              Report{dnesneReporty.length > 1 ? `y (${dnesneReporty.length})` : ""}
+            </div>
+            {dnesneReporty.map((r) => (
+              <div key={r.id} className="mb-2 last:mb-0">
+                <div className="text-[10px] text-f-faint2">
+                  {r.autor || "neznámy"}
+                  {r.zdrojDatumu === "sprava" && <span className="text-f-accent"> · dátum podľa dňa doručenia</span>}
+                </div>
+                <div className="text-[12.5px] text-f-text whitespace-pre-wrap leading-relaxed">{r.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
