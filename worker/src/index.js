@@ -15,6 +15,12 @@
  *   POST /parse   -> preposlá screenshot na Anthropic Vision API (vedúci a admin)
  *   GET  /version -> { version } — aktuálna verzia DÁT na serveri (nesúvisí s verziou frontendu;
  *                     tú appka rieši sama cez public/version.json + BUILD_ID, viď README).
+ *   GET  /push/key        -> verejný kľúč servera pre upozornenia (Fáza 6)
+ *   POST /push/subscribe  -> zapamätá si telefón, ktorý chce upozornenia
+ *   POST /push/unsubscribe-> zabudne ho
+ *   POST /push/test       -> pošle skúšobné upozornenie na vlastné zariadenia
+ *   POST /push/oznam      -> rozošle upozornenie štábu (iba vedúci a admin)
+ *
  *   POST /hook    -> príjem správ z WhatsApp Business bridge (WAHA/Baileys), vyžaduje X-Hook-Secret.
  *                    Tento endpoint je IBA na čítanie správ z chatu — nikdy nič neposiela naspäť
  *                    do WhatsApp skupiny (žiadne volanie na send API bridge-u odtiaľto).
@@ -35,7 +41,9 @@ import {
   handleAuthLogout,
   handleGetUsers,
   handlePostUsers,
+  readUsers,
 } from "./auth.js";
+import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
 
 const STATE_KEY = "state_v1";
 
@@ -46,11 +54,21 @@ const STATE_KEY = "state_v1";
 //             hľadá sa v nich, kto kedy nemôže) alebo "report" (Fáza 4 — denné reporty
 //             od réžie; text sa neanalyzuje, hľadá sa v ňom iba dátum).
 // "reporty"  = denné reporty (Fáza 4), kľúč = id reportu. Jedna správa = jeden report.
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, log: [], pendingHook: [], version: 0 };
+// "dispo"    = POTVRDENÉ dispozície (Fáza 5), kľúč = deň "YYYY-MM-DD". Toto je to,
+//              čo appka ukazuje v detaile dňa. Sem sa nič nedostane samo — vždy až
+//              potom, čo to niekto v paneli „Dispo“ potvrdí.
+// "pendingDispo" = NÁVRHY z dispo mailov, ktoré ešte nikto nepotvrdil. Server sem
+//              iba odloží, čo v maile prečítal; rozpis sa nemení, kým to človek
+//              neodklikne. To je celá podstata Fázy 5: appka navrhne, admin potvrdí.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], log: [], pendingHook: [], version: 0 };
 
 // Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
 // aby jeden pokazený bridge nezaplnil KV.
 const MAX_REPORTOV = 1000;
+
+// Nepotvrdených dispo mailov by sa nemalo nahromadiť veľa. Keď ich je toľko,
+// niečo je zle a nemá zmysel držať ďalšie.
+const MAX_PENDING_DISPO = 60;
 
 /* ---------- WhatsApp bridge (Fáza 3) ----------
    Bridge je čítačka WhatsAppu, ktorá beží mimo Cloudflare (Fly.io, prípadne aj naska
@@ -162,6 +180,8 @@ async function handlePostData(request, env) {
     sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
     chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
     reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
+    dispo: body.dispo && typeof body.dispo === "object" ? body.dispo : current.dispo,
+    pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
     log: Array.isArray(body.log) ? body.log.slice(0, 400) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
@@ -613,8 +633,389 @@ async function handleBridgeStatus(request, env) {
   return json({ bridges: await readBridges(env) }, 200, env);
 }
 
+/* ========== Fáza 5: dispozícia mailom ==========
+
+   Dispozícia chodí mailom na vyhradenú adresu (Cloudflare Email Routing ju
+   preposiela sem do funkcie email()). Server z nej prečíta harmonogram dňa
+   a prípadné zmeny smien — ale NIČ tým neprepíše. Všetko sa odloží do
+   "pendingDispo" ako návrh a čaká, kým to niekto v appke potvrdí. Až vtedy sa
+   harmonogram zapíše do "dispo" a zmeny do rozpisu.
+
+   Sekcia o odchode z Prahy sa zámerne ignoruje — s rozpisom štábu nesúvisí. */
+
+const DISPO_PROMPT = (dnesIso, menaStabu) => `Čítaš e-mail s dispozíciou (dispo) na natáčací deň televíznej relácie.
+Vráť IBA JSON objekt, bez markdownu a bez vysvetlenia, presne v tomto tvare:
+{"datum":"2026-08-15","harmonogram":[{"cas":"07:00","text":"zraz na základni"}],"poznamky":"","zmeny":[{"meno":"Ján Novák","smena":"A","nemoze":false,"dovod":"posun zrazu"}]}
+
+Pravidlá:
+- "datum" je deň, na ktorý dispozícia platí, vo formáte YYYY-MM-DD. Mail prišiel ${dnesIso}; ak je uvedený deň a mesiac bez roka, doplň rok tak, aby bol dátum čo najbližšie k dátumu doručenia. Keď dátum nevieš určiť, daj null.
+- "harmonogram" je časový plán dňa v poradí, ako je v maile. "cas" je HH:MM (24-hodinový). Riadky bez času vynechaj. Text nechaj v pôvodnom znení, iba skráť na to podstatné.
+- ÚPLNE IGNORUJ sekciu o odchode/odjazde z Prahy a o doprave z Prahy — do harmonogramu ju nedávaj.
+- "poznamky" je krátke zhrnutie toho, čo je v maile dôležité a nie je to čas (počasie, oblečenie, čo si zobrať). Keď nič také nie je, daj "".
+- "zmeny" vypĺňaj IBA vtedy, keď mail výslovne píše o zmene v obsadení konkrétneho človeka: kto má inú smenu, alebo kto v ten deň nie je. Nič nedomýšľaj — keď o zmenách v obsadení nie je reč, daj prázdne pole.
+- "smena" môže byť iba "A", "B", "C" alebo "R"; keď mail hovorí, že človek v ten deň nie je, daj "smena":null a "nemoze":true.
+- "meno" píš tak, ako je v maile. Ľudia zo štábu sa volajú: ${menaStabu || "(zoznam nie je k dispozícii)"}.
+- Neistota = vynechaj. Radšej menej, než vymyslené.`;
+
+/** Porovnávanie mien bez ohľadu na diakritiku, veľkosť písmen a poradie slov. */
+const bezDiakritiky = (s) =>
+  String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Nájde človeka zo štábu podľa mena z mailu. Zámerne je to prísne:
+ * keď si nie sme istí, vrátime null a v appke to doplní človek. Zle priradená
+ * zmena smeny je horšia než žiadna.
+ */
+function najdiClena(crew, meno) {
+  const hladane = bezDiakritiky(meno);
+  if (!hladane) return null;
+  const slova = hladane.split(" ").filter(Boolean);
+
+  const kandidati = (crew || []).map((c) => ({ c, n: bezDiakritiky(c.name), slova: bezDiakritiky(c.name).split(" ").filter(Boolean) }));
+
+  // celé meno sedí (v akomkoľvek poradí slov)
+  const cele = kandidati.filter((k) => k.slova.length === slova.length && [...k.slova].sort().join(" ") === [...slova].sort().join(" "));
+  if (cele.length === 1) return cele[0].c;
+
+  // v maile je len priezvisko (alebo len krstné) a v štábe je taký človek jediný
+  if (slova.length === 1) {
+    const zhody = kandidati.filter((k) => k.slova.includes(slova[0]));
+    if (zhody.length === 1) return zhody[0].c;
+    return null;
+  }
+
+  // mail má viac slov — stačí, keď všetky sedia s niektorými slovami mena a je to jediný taký
+  const ciastocne = kandidati.filter((k) => slova.every((s) => k.slova.includes(s)));
+  if (ciastocne.length === 1) return ciastocne[0].c;
+  return null;
+}
+
+/* ---------- čítanie surového mailu ----------
+   Zámerne bez knižnice: Worker má byť malý a mail od produkcie je obyčajný
+   text alebo jednoduchý multipart. Keď sa niečo nepodarí prečítať, vrátime
+   aspoň celé telo — nech radšej príde návrh s trochu neupratným textom, než
+   aby dispo ticho zapadlo. */
+
+function dekodujQuotedPrintable(s) {
+  const bez = s.replace(/=\r?\n/g, "");
+  const bajty = [];
+  for (let i = 0; i < bez.length; i++) {
+    if (bez[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(bez.slice(i + 1, i + 3))) {
+      bajty.push(parseInt(bez.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bajty.push(bez.charCodeAt(i) & 0xff);
+    }
+  }
+  return new TextDecoder("utf-8").decode(new Uint8Array(bajty));
+}
+
+function dekodujBase64(s) {
+  try {
+    const bin = atob(s.replace(/\s+/g, ""));
+    const bajty = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bajty[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bajty);
+  } catch {
+    return s;
+  }
+}
+
+const bezHtml = (s) =>
+  String(s)
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+/** Rozdelí kus mailu na hlavičky a telo. */
+function rozdelMail(raw) {
+  const i = raw.search(/\r?\n\r?\n/);
+  if (i < 0) return { hlavicky: raw, telo: "" };
+  const koniec = raw.slice(i).match(/^\r?\n\r?\n/)[0].length;
+  return { hlavicky: raw.slice(0, i), telo: raw.slice(i + koniec) };
+}
+
+function hlavicka(hlavicky, meno) {
+  // hlavička sa môže lámať do viacerých riadkov (pokračovanie začína medzerou)
+  const zlepene = hlavicky.replace(/\r?\n[ \t]+/g, " ");
+  const m = zlepene.match(new RegExp("^" + meno + "\\s*:\\s*(.*)$", "im"));
+  return m ? m[1].trim() : "";
+}
+
+function dekodujTelo(hlavicky, telo) {
+  const enc = hlavicka(hlavicky, "Content-Transfer-Encoding").toLowerCase();
+  if (enc === "quoted-printable") return dekodujQuotedPrintable(telo);
+  if (enc === "base64") return dekodujBase64(telo);
+  return telo;
+}
+
+/** Z celého surového mailu vytiahne čitateľný text (uprednostní text/plain). */
+export function extrahujTextMailu(raw) {
+  const { hlavicky, telo } = rozdelMail(String(raw || ""));
+  const ct = hlavicka(hlavicky, "Content-Type");
+  const hranica = ct.match(/boundary\s*=\s*"?([^";\r\n]+)"?/i)?.[1];
+
+  if (!hranica) {
+    const text = dekodujTelo(hlavicky, telo);
+    return /html/i.test(ct) ? bezHtml(text) : text.trim();
+  }
+
+  // multipart: prejdi časti, ber text/plain, HTML iba ako záložnú možnosť
+  const casti = telo.split(new RegExp("--" + hranica.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(--)?\\s*\\r?\\n?"));
+  let plain = "";
+  let html = "";
+  for (const cast of casti) {
+    if (!cast || !cast.trim()) continue;
+    const { hlavicky: h, telo: t } = rozdelMail(cast);
+    const castCt = hlavicka(h, "Content-Type");
+    if (/multipart\//i.test(castCt)) {
+      const vnorene = extrahujTextMailu(cast);
+      if (vnorene && !plain) plain = vnorene;
+      continue;
+    }
+    if (/text\/plain/i.test(castCt) && !plain) plain = dekodujTelo(h, t).trim();
+    else if (/text\/html/i.test(castCt) && !html) html = bezHtml(dekodujTelo(h, t));
+  }
+  return plain || html || dekodujTelo(hlavicky, telo).trim();
+}
+
+/**
+ * Prečíta dispo mail a odloží NÁVRH. Rozpis sa nemení — to spraví až človek
+ * v appke. Vracia { navrh: true, id, datum } alebo { ignored/duplicate: true }.
+ */
+async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
+  const cistyText = String(text || "").trim();
+  if (!cistyText) return { ignored: true, reason: "prázdny mail" };
+
+  // ten istý mail môže doraziť dvakrát (preposlanie, opakované doručenie)
+  const kluc = msgId ? "dispomail:" + String(msgId).slice(0, 160) : "";
+  if (kluc) {
+    if (await env.ROZPIS_KV.get(kluc)) return { duplicate: true, reason: "tento mail už bol spracovaný" };
+    await env.ROZPIS_KV.put(kluc, "1", { expirationTtl: HOOKMSG_TTL });
+  }
+
+  const prislo = datumSpravy(ts);
+  const state0 = await readState(env);
+  const mena = (state0.crew || []).map((c) => c.name).filter(Boolean).join(", ");
+
+  let datum = null;
+  let harmonogram = [];
+  let poznamky = "";
+  let zmeny = [];
+  let precitane = false;
+
+  if (env.ANTHROPIC_API_KEY) {
+    try {
+      const clean = await callAnthropicText(env, DISPO_PROMPT(isoDna(prislo), mena), cistyText.slice(0, 12000));
+      const v = JSON.parse(clean) || {};
+      if (jeIso(v.datum)) datum = v.datum;
+      harmonogram = (Array.isArray(v.harmonogram) ? v.harmonogram : [])
+        .filter((h) => /^\d{1,2}:\d{2}$/.test(String(h?.cas || "")))
+        .slice(0, 80)
+        .map((h) => ({ cas: String(h.cas).padStart(5, "0"), text: String(h.text || "").slice(0, 300) }));
+      poznamky = String(v.poznamky || "").slice(0, 2000);
+      zmeny = (Array.isArray(v.zmeny) ? v.zmeny : []).slice(0, 60).map((z) => {
+        const clen = najdiClena(state0.crew, z?.meno);
+        const smena = ["A", "B", "C", "R"].includes(z?.smena) ? z.smena : null;
+        return {
+          meno: String(z?.meno || "").slice(0, 80),
+          crewId: clen ? clen.id : null,     // null = appka nevie, o koho ide; vyberie človek
+          smena,
+          nemoze: !!z?.nemoze,
+          dovod: String(z?.dovod || "").slice(0, 200),
+        };
+      // zmena, ktorá nič nehovorí, je len šum
+      }).filter((z) => z.smena || z.nemoze);
+      precitane = true;
+    } catch {
+      /* Keď sa mail nepodarí prečítať, návrh sa aj tak uloží — s holým textom.
+         Človek v appke uvidí aspoň, že dispo prišlo, a prepíše si ho ručne.
+         Stratiť dispozíciu je horšie než uložiť ju neprečítanú. */
+    }
+  }
+
+  const state = await readState(env);
+  const id = "dsp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  const navrh = {
+    id,
+    datum: datum || isoDna(prislo),
+    datumZTextu: !!datum,              // false = deň je iba podľa dňa doručenia
+    precitane,                         // false = mail sa nepodarilo rozobrať, je tu len text
+    prislo: prislo.toISOString(),
+    predmet: String(predmet || "").slice(0, 200),
+    od: String(od || "").slice(0, 120),
+    harmonogram,
+    poznamky,
+    zmeny,
+    text: cistyText.slice(0, 20000),
+  };
+
+  const pendingDispo = [navrh, ...(state.pendingDispo || [])].slice(0, MAX_PENDING_DISPO);
+  const log = [
+    { t: new Date().toISOString(), text: `Dispo mail na ${navrh.datum}${precitane ? "" : " (nepodarilo sa prečítať — iba text)"} — čaká na potvrdenie` },
+    ...state.log,
+  ].slice(0, 400);
+  const next = { ...state, pendingDispo, log, version: state.version + 1 };
+  await writeState(env, next);
+
+  return { navrh: true, id, datum: navrh.datum, precitane, zmien: zmeny.length, polozek: harmonogram.length, version: next.version };
+}
+
+/* POST /dispo/mail — záložná cesta pre dispo mail (X-Hook-Secret).
+   Existuje preto, že Email Routing sa zapína v Cloudflare paneli; kým to nie je
+   zapnuté (alebo keď mail chodí cez iný preposielač), dá sa dispo poslať sem. */
+async function handleDispoMail(request, env) {
+  if (!checkHookSecret(request, env)) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+
+  // dá sa poslať buď rozobraný mail, alebo celý surový (raw) a rozoberieme ho tu
+  let { predmet, od, text, ts, msgId } = body;
+  if (!text && body.raw) {
+    const { hlavicky } = rozdelMail(String(body.raw));
+    text = extrahujTextMailu(body.raw);
+    if (!predmet) predmet = hlavicka(hlavicky, "Subject");
+    if (!od) od = hlavicka(hlavicky, "From");
+    if (!msgId) msgId = hlavicka(hlavicky, "Message-ID");
+  }
+
+  const v = await spracujDispoMail(env, { predmet, od, text, ts, msgId });
+  return json(v, 200, env);
+}
+
+/* ---------- upozornenia do telefónu (Fáza 6) ---------- */
+
+/* Verejný kľúč servera. Appka ho potrebuje na to, aby si u výrobcu prehliadača
+   vypýtala schránku práve pre nás. Tajný nie je — verejný kľúč je verejný. */
+async function handlePushKey(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  const k = await vapidKluce(env);
+  return json({ kluc: k.verejny }, 200, env);
+}
+
+async function handlePushSubscribe(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+  const endpoint = String(body.endpoint || "");
+  const p256dh = String(body.p256dh || "");
+  const auth = String(body.auth || "");
+  if (!/^https:\/\//.test(endpoint) || !p256dh || !auth) {
+    return json({ error: "Chýbajú údaje o schránke upozornení." }, 400, env);
+  }
+  // Núdzový admin nemá mail, takže by sa mu upozornenia nemali komu adresovať.
+  if (!user.email) return json({ error: "Upozornenia sa dajú zapnúť len po prihlásení mailom, nie núdzovým heslom." }, 400, env);
+  // odber sa viaže na prihláseného človeka — nedá sa prihlásiť za niekoho iného
+  await ulozOdber(env, user.email, { endpoint, p256dh, auth, zariadenie: body.zariadenie });
+  return json({ ok: true }, 200, env);
+}
+
+async function handlePushUnsubscribe(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+  if (!body.endpoint) return json({ error: "Chýba adresa schránky." }, 400, env);
+  await zmazOdber(env, user.email, String(body.endpoint));
+  return json({ ok: true }, 200, env);
+}
+
+/* Skúšobné upozornenie — pošle sa iba na vlastné zariadenia toho, kto o to žiada.
+   Je to jediný spôsob, ako si človek overí, že mu upozornenia naozaj chodia. */
+async function handlePushTest(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  const v = await posliVsetkym(env, {
+    nadpis: "FARMA 18",
+    text: "Skúšobné upozornenie — funguje to.",
+    url: "/",
+    znacka: "test",
+  }, [user.email]);
+  return json(v, 200, env);
+}
+
+/* Rozposlanie upozornenia štábu. Smú to iba vedúci a admin — to isté pravidlo
+   ako pri všetkom ostatnom, čo zasahuje do rozpisu. */
+async function handlePushOznam(request, env, ctx) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  const caps = roleCaps(user.role);
+  if (!caps.pending) return json({ error: "Upozornenia smú rozposielať iba vedúci a admin." }, 403, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+  const sprava = {
+    nadpis: String(body.nadpis || "FARMA 18").slice(0, 80),
+    text: String(body.text || "").slice(0, 300),
+    url: String(body.url || "/").slice(0, 200),
+    znacka: body.znacka ? String(body.znacka).slice(0, 60) : undefined,
+    dolezite: !!body.dolezite,
+  };
+  if (!sprava.text) return json({ error: "Prázdne upozornenie sa neposiela." }, 400, env);
+
+  const komu = Array.isArray(body.komu) && body.komu.length ? body.komu.map(String) : null;
+
+  // Rozosielanie môže trvať — nenechávame appku čakať, kým to prejde všetkými telefónmi.
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(posliVsetkym(env, sprava, komu));
+    return json({ ok: true, odoslane: "na pozadí" }, 200, env);
+  }
+  const v = await posliVsetkym(env, sprava, komu);
+  return json({ ok: true, ...v }, 200, env);
+}
+
+/* Keď príde nové dispo mailom, nech o tom vedia tí, čo ho majú potvrdiť.
+   Nikomu inému sa to neposiela — štáb má vidieť až potvrdený harmonogram. */
+async function upozorniNaDispo(env, navrh) {
+  try {
+    const users = await readUsers(env);
+    const komu = users
+      .filter((u) => u.active !== false && roleCaps(u.role).pending)
+      .map((u) => u.email);
+    if (!komu.length) return;
+    await posliVsetkym(env, {
+      nadpis: "Nové dispo čaká na potvrdenie",
+      text: navrh && navrh.datum ? `Prišla dispozícia na ${navrh.datum}. Do rozpisu sa nič nezapíše, kým to nepotvrdíš.` : "Prišla dispozícia mailom.",
+      url: "/",
+      znacka: "dispo",
+    }, komu);
+  } catch (e) {
+    // upozornenie je príjemnosť navyše — keď zlyhá, mail sa aj tak spracoval
+    console.log("upozornenie na dispo zlyhalo:", e && e.message);
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -663,7 +1064,49 @@ export default {
     if (url.pathname === "/hook" && request.method === "POST") {
       return handlePostHook(request, env);
     }
+    // --- dispozícia mailom (Fáza 5) ---
+    if (url.pathname === "/dispo/mail" && request.method === "POST") {
+      return handleDispoMail(request, env);
+    }
+    // --- upozornenia do telefónu (Fáza 6) ---
+    if (url.pathname === "/push/key" && request.method === "GET") {
+      return handlePushKey(request, env);
+    }
+    if (url.pathname === "/push/subscribe" && request.method === "POST") {
+      return handlePushSubscribe(request, env);
+    }
+    if (url.pathname === "/push/unsubscribe" && request.method === "POST") {
+      return handlePushUnsubscribe(request, env);
+    }
+    if (url.pathname === "/push/test" && request.method === "POST") {
+      return handlePushTest(request, env);
+    }
+    if (url.pathname === "/push/oznam" && request.method === "POST") {
+      return handlePushOznam(request, env, ctx);
+    }
 
     return json({ error: "Not found" }, 404, env);
+  },
+
+  /* Sem príde mail z Cloudflare Email Routing. Nič neodpisujeme a nič
+     neodmietame — mail iba prečítame a odložíme ako návrh. Keby to spadlo,
+     nesmie to zhodiť doručovanie, preto je celé telo v try. */
+  async email(message, env, ctx) {
+    try {
+      const raw = await new Response(message.raw).text();
+      const v = await spracujDispoMail(env, {
+        predmet: message.headers.get("subject") || "",
+        od: message.from || "",
+        text: extrahujTextMailu(raw),
+        msgId: message.headers.get("message-id") || "",
+      });
+      if (v && v.navrh) {
+        const upozornenie = upozorniNaDispo(env, v);
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(upozornenie);
+        else await upozornenie;
+      }
+    } catch (e) {
+      console.log("dispo mail zlyhal:", e && e.message);
+    }
   },
 };

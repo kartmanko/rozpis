@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
 import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
-import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout } from "./api";
+import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam } from "./api";
 import { capsOf, sectionsOf, cellAccess, DEMO_USER } from "./permissions";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
+import { pripravAktualizaciu } from "./pwa";
 import { DEMO_DATA } from "./demoData";
 
 import Legend from "./components/Legend";
@@ -25,6 +26,7 @@ import SadzbyPanel from "./components/SadzbyPanel";
 import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
+import DispoPanel from "./components/DispoPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
@@ -57,6 +59,8 @@ export default function App() {
   const [nad, setNadState] = useState({}); // "A"|"B"|"C"|"R"|"duel" -> { depart, return } — univerzálne, neviaže sa na dátum
   const [chaty, setChatyState] = useState({}); // sledované WhatsApp skupiny (Fáza 3)
   const [reporty, setReportyState] = useState({}); // denné reporty réžie (Fáza 4)
+  const [dispo, setDispoState] = useState({}); // POTVRDENÉ dispozície, kľúč = deň (Fáza 5)
+  const [pendingDispo, setPendingDispoState] = useState([]); // návrhy z dispo mailov, čakajú na potvrdenie
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -105,7 +109,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -153,6 +157,9 @@ export default function App() {
     const check = async () => {
       const latest = await fetchLatestBuildId();
       if (!cancelled && latest && latest !== BUILD_ID) {
+        // service workerovi ešte povieme, nech zahodí starú kešu a prepne sa na
+        // nový build — inak by po obnovení mohol podstrčiť starú stránku
+        await pripravAktualizaciu();
         window.location.reload();
       }
     };
@@ -250,6 +257,8 @@ export default function App() {
       setSadzbyState(d.sadzby || {});
       setChatyState(d.chaty || {});
       setReportyState(d.reporty || {});
+      setDispoState(d.dispo || {});
+      setPendingDispoState(d.pendingDispo || []);
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -307,7 +316,7 @@ export default function App() {
       }
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion: version });
+        const res = await saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, baseVersion: version });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -327,7 +336,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, pendingHook, log]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log]);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -478,6 +487,89 @@ export default function App() {
     () => Object.values(reporty || {}).filter((r) => r.zdrojDatumu === "sprava").length,
     [reporty],
   );
+
+  /* Dispozície (Fáza 5). Mail s dispozíciou prečíta server, ale nič ním neprepíše —
+     odloží ho do "pendingDispo" ako návrh. Tu sa návrh potvrdí a AŽ VTEDY sa
+     harmonogram zapíše ku dňu a zaškrtnuté zmeny do rozpisu. Nič sa nikdy nezapíše
+     samo: to je celý zmysel Fázy 5. */
+  const potvrdDispo = useCallback((navrh, volba) => {
+    const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(volba?.datum || "")) ? volba.datum : navrh.datum;
+
+    // 1. harmonogram dňa — ukáže sa v detaile dňa
+    if (volba?.harmonogram && (navrh.harmonogram || []).length) {
+      setDispoState((prev) => ({
+        ...prev,
+        [datum]: {
+          datum,
+          harmonogram: navrh.harmonogram,
+          poznamky: navrh.poznamky || "",
+          predmet: navrh.predmet || "",
+          potvrdene: new Date().toISOString(),
+        },
+      }));
+    }
+
+    // 2. zmeny v obsadení — iba tie zaškrtnuté a iba tie, pri ktorých vieme, o koho ide
+    const vybrane = Object.entries(volba?.zmeny || {})
+      .filter(([, z]) => z?.vybrane && z?.crewId)
+      .map(([i, z]) => ({ ...(navrh.zmeny || [])[Number(i)], crewId: z.crewId }))
+      .filter((z) => z && (z.smena || z.nemoze));
+
+    if (vybrane.length) {
+      commitCells((prev) => {
+        const out = { ...prev };
+        vybrane.forEach((z) => {
+          const k = datum + "|" + z.crewId;
+          const cur = out[k] || emptyCell;
+          // "nemôže" má prednosť — keď človek v ten deň nie je, smena nedáva zmysel
+          const next = z.nemoze ? { ...cur, off: true, shift: null } : { ...cur, off: false, shift: z.smena };
+          const empty = prazdnaBunka(next);
+          if (empty) delete out[k]; else out[k] = next;
+        });
+        return out;
+      }, `Dispo potvrdené na ${datum} — ${vybrane.length} zmien v obsadení`);
+    }
+
+    setPendingDispoState((prev) => prev.filter((x) => x.id !== navrh.id));
+    const kusky = [];
+    if (volba?.harmonogram && (navrh.harmonogram || []).length) kusky.push(`harmonogram (${navrh.harmonogram.length} položiek)`);
+    if (vybrane.length) kusky.push(`${vybrane.length} zmien v obsadení`);
+    addLog(`Dispo na ${datum} potvrdené: ${kusky.length ? kusky.join(", ") : "nič sa neprebralo"}`);
+    setDirty(true);
+
+    /* Až teraz — po potvrdení človekom — sa o dispozícii dozvie štáb (Fáza 6).
+       Kým to admin nepotvrdí, nikomu nič nezapípa. Keď upozornenie neprejde
+       (server nedostupný, nikto nemá zapnuté), potvrdenie tým netrpí. */
+    if (kusky.length) {
+      pushOznam({
+        nadpis: "Dispozícia na " + datum,
+        text: "Rozpis na " + datum + " je aktualizovaný: " + kusky.join(", ") + ".",
+        url: "/",
+        znacka: "dispo-" + datum,
+      }).catch(() => { /* ticho — upozornenie je bonus, nie podmienka */ });
+    }
+  }, [addLog, commitCells]);
+
+  const zahodDispo = useCallback((id) => {
+    setPendingDispoState((prev) => prev.filter((x) => x.id !== id));
+    addLog("Dispo mail zahodený");
+    setDirty(true);
+  }, [addLog]);
+
+  // zmazanie už potvrdenej dispozície — rozpis to nechá tak, zmizne len harmonogram dňa
+  const zrusPotvrdeneDispo = useCallback((datum) => {
+    setDispoState((prev) => {
+      if (!prev[datum]) return prev;
+      const out = { ...prev };
+      delete out[datum];
+      return out;
+    });
+    addLog(`Potvrdená dispozícia na ${datum} zmazaná`);
+    setDirty(true);
+  }, [addLog]);
+
+  // koľko dispo mailov čaká na potvrdenie
+  const dispoNaPotvrdenie = (pendingDispo || []).length;
 
   // koľko skupín čaká na rozhodnutie (ani zapnuté, ani vedome vypnuté)
   const novychChatov = useMemo(
@@ -845,6 +937,10 @@ export default function App() {
                   Denné reporty
                   {caps.pending && reportovNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{reportovNaPotvrdenie}</span>}
                 </button>
+                <button onClick={() => togglePanel("dispo")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
+                  Dispo
+                  {caps.pending && dispoNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{dispoNaPotvrdenie}</span>}
+                </button>
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Môj účet</button>
                 {caps.users && (
@@ -964,6 +1060,18 @@ export default function App() {
           onClose={() => setPanel(null)}
         />
       )}
+      {panel === "dispo" && (
+        <DispoPanel
+          pendingDispo={pendingDispo}
+          dispo={dispo}
+          crew={crew}
+          canEdit={!!caps.pending}
+          onPotvrd={potvrdDispo}
+          onZahod={zahodDispo}
+          onZrusPotvrdene={zrusPotvrdeneDispo}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onClose={() => setPanel(null)} />
       )}
@@ -1011,6 +1119,7 @@ export default function App() {
           crew={crew}
           cellOf={cellOf}
           reporty={reporty}
+          dispo={dispo}
           onClose={() => setDayDetailIso(null)}
         />
       )}

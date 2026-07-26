@@ -502,6 +502,17 @@ export function checkStateChange(user, current, next) {
     return { ok: false, error: "Denné reporty smú meniť iba vedúci a admin." };
   }
 
+  // dispozície (Fáza 5). "pendingDispo" je fronta návrhov z mailov, "dispo" je to,
+  // čo už niekto potvrdil a čo appka ukazuje v detaile dňa. Oboje smie meniť iba
+  // ten, kto spracúva frontu — celá Fáza 5 stojí na tom, že rozpis nikto neprepíše
+  // ticho a bez potvrdenia. Ostatní dispo vidia, ale nesiahnu naň.
+  if (changedPlain(current.dispo, next.dispo).length && !caps.pending) {
+    return { ok: false, error: "Dispozície smú potvrdzovať iba vedúci a admin." };
+  }
+  if (JSON.stringify(current.pendingDispo || []) !== JSON.stringify(next.pendingDispo || [])) {
+    if (!caps.pending) return { ok: false, error: "Dispo maily smú spracovať iba vedúci a admin." };
+  }
+
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };

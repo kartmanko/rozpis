@@ -1,7 +1,7 @@
 // Vygeneruje unikátne ID buildu pred každým "npm run build" — použije sa na
 // zisťovanie, či má bežiaca appka (napr. pripnutá na ploche iPhonu) k dispozícii
 // novšiu nasadenú verziu, nech sa vie sama obnoviť.
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -13,5 +13,10 @@ writeFileSync(join(root, "src", "buildId.generated.js"), `export const BUILD_ID 
 
 mkdirSync(join(root, "public"), { recursive: true });
 writeFileSync(join(root, "public", "version.json"), JSON.stringify({ buildId }) + "\n");
+
+// Service worker (Fáza 6). Vyrobí sa zo šablóny, aby v ňom bolo číslo buildu —
+// podľa neho si vie po nasadení novej verzie zahodiť starú kešu.
+const sw = readFileSync(join(root, "scripts", "sw.template.js"), "utf8").replaceAll("__BUILD_ID__", buildId);
+writeFileSync(join(root, "public", "sw.js"), sw);
 
 console.log("BUILD_ID:", buildId);

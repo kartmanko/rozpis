@@ -99,8 +99,9 @@ export async function fetchData() {
 // chýba, to sa na server nikdy nepošle a ticho sa to stratí. "sadzby" sú z Fázy 2,
 // "chaty" (sledované WhatsApp skupiny) z Fázy 3.
 // "reporty" (denné reporty réžie) z Fázy 4.
-export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, pendingHook, log, baseVersion });
+// "dispo" (potvrdené dispozície) a "pendingDispo" (návrhy z mailov) z Fázy 5.
+export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, baseVersion });
 }
 
 /** Ktoré bridge (čítačky WhatsAppu) sa naposledy ozvali — Fáza 3. */
@@ -141,6 +142,32 @@ export async function fetchUsers() {
 
 export async function saveUsers(users) {
   return jsonPost("/auth/users", { users });
+}
+
+/* ---------- upozornenia do telefónu (Fáza 6) ---------- */
+
+/** Verejný kľúč servera pre odber upozornení. Server si ho vyrobil sám, nie je nikde v kóde. */
+export async function fetchPushKey() {
+  return request("/push/key", { method: "GET" });
+}
+
+/** Zaregistruje toto zariadenie na upozornenia. */
+export async function pushSubscribe({ endpoint, p256dh, auth, zariadenie }) {
+  return jsonPost("/push/subscribe", { endpoint, p256dh, auth, zariadenie });
+}
+
+export async function pushUnsubscribe(endpoint) {
+  return jsonPost("/push/unsubscribe", { endpoint });
+}
+
+/** Skúšobné upozornenie — príde iba tomu, kto ho vypýtal. */
+export async function pushTest() {
+  return jsonPost("/push/test", {});
+}
+
+/** Oznam celému štábu. Server ho pustí len tomu, kto smie potvrdzovať zmeny. */
+export async function pushOznam({ nadpis, text, url, znacka, komu }) {
+  return jsonPost("/push/oznam", { nadpis, text, url, znacka, komu });
 }
 
 export { ApiError };

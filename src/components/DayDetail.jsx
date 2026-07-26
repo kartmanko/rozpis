@@ -9,7 +9,7 @@ const CHIP_BADGE = {
   R: "bg-f-r",
 };
 
-export default function DayDetail({ iso, crew, cellOf, reporty, onClose }) {
+export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }) {
   const ci = cycleInfo(iso);
   const reh = REHEARSALS.includes(iso);
   const d = new Date(toUTC(iso));
@@ -22,6 +22,10 @@ export default function DayDetail({ iso, crew, cellOf, reporty, onClose }) {
   const dnesneReporty = Object.values(reporty || {})
     .filter((r) => r.datum === iso)
     .sort((a, b) => String(a.prislo).localeCompare(String(b.prislo)));
+
+  /* Harmonogram dňa z dispozície (Fáza 5). Je tu iba to, čo už niekto v paneli
+     „Dispo“ potvrdil — nepotvrdené návrhy sa v detaile dňa neukazujú. */
+  const denneDispo = (dispo || {})[iso];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 no-print" onClick={onClose}>
@@ -60,6 +64,23 @@ export default function DayDetail({ iso, crew, cellOf, reporty, onClose }) {
             </div>
           );
         })}
+
+        {denneDispo && (denneDispo.harmonogram || []).length > 0 && (
+          <div className="border-t border-f-hair pt-2.5 mt-2.5">
+            <div className="text-[9.5px] font-bold tracking-wider text-f-faint uppercase mb-1.5">Harmonogram</div>
+            <div className="space-y-0.5">
+              {denneDispo.harmonogram.map((h, i) => (
+                <div key={i} className="text-[12.5px] text-f-text flex gap-2.5">
+                  <span className="font-mono text-[11.5px] font-bold text-f-accent shrink-0 w-11">{h.cas}</span>
+                  <span className="min-w-0">{h.text}</span>
+                </div>
+              ))}
+            </div>
+            {denneDispo.poznamky && (
+              <div className="text-[11.5px] text-f-muted2 whitespace-pre-wrap mt-1.5">{denneDispo.poznamky}</div>
+            )}
+          </div>
+        )}
 
         {dnesneReporty.length > 0 && (
           <div className="border-t border-f-hair pt-2.5 mt-2.5">
