@@ -315,16 +315,20 @@ async function handlePostHook(request, env) {
   if (match) {
     // telefón poznáme -> rovno zapíš (nikdy nezapisuj pri neznámom telefóne)
     const cells = { ...state.cells };
+    // Pozor: prázdna bunka musí byť naozaj prázdna vo všetkých poliach, ktoré bunka drží —
+    // vrátane nahláseného nadčasu (Fáza 2). Keby sa nadčas nerátal, oprava z WhatsAppu
+    // ("v ten deň už môžem") by ticho zmazala bunku aj s nahlásenými hodinami.
+    const PRAZDNA = { off: false, shift: null, duel: false, note: "", nadcas: 0 };
     unavailable.forEach((iso) => {
       const k = `${iso}|${match.id}`;
-      const cur = cells[k] || { off: false, shift: null, duel: false, note: "" };
+      const cur = cells[k] || PRAZDNA;
       cells[k] = { ...cur, off: true };
     });
     correctedAvailable.forEach((iso) => {
       const k = `${iso}|${match.id}`;
-      const cur = cells[k] || { off: false, shift: null, duel: false, note: "" };
+      const cur = cells[k] || PRAZDNA;
       const next = { ...cur, off: false };
-      const empty = !next.off && !next.shift && !next.duel && !next.note;
+      const empty = !next.off && !next.shift && !next.duel && !next.note && !Number(next.nadcas);
       if (empty) delete cells[k]; else cells[k] = next;
     });
     const bits = [];
