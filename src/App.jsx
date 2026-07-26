@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
-import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, ADMIN_STORAGE_KEY, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
-import { fetchData, saveData, ApiError, getApiBase } from "./api";
+import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
+import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout } from "./api";
+import { capsOf, sectionsOf, cellAccess, DEMO_USER } from "./permissions";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
 import { DEMO_DATA } from "./demoData";
@@ -18,6 +19,8 @@ import DayDetail from "./components/DayDetail";
 import NadPanel from "./components/NadPanel";
 import WhatsAppQueuePanel from "./components/WhatsAppQueuePanel";
 import ThemeToggle from "./components/ThemeToggle";
+import LoginScreen from "./components/LoginScreen";
+import UsersPanel from "./components/UsersPanel";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 const emptyCell = { off: false, shift: null, duel: false, note: "" };
@@ -50,14 +53,19 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [adminPassword, setAdminPassword] = useState(() => {
-    try { return localStorage.getItem(ADMIN_STORAGE_KEY) || ""; } catch { return ""; }
-  });
-  const [isAdmin, setIsAdmin] = useState(() => {
-    try { return !!localStorage.getItem(ADMIN_STORAGE_KEY); } catch { return false; }
-  });
-  const [loginError, setLoginError] = useState("");
-  const canEdit = isAdmin; // deklarované skoro, nech ho môžu použiť efekty definované nižšie (klávesové skratky a pod.)
+  /* --- prihlásený človek a jeho práva (Fáza 1) ---
+     me === undefined = ešte overujeme, null = neprihlásený, objekt = prihlásený.
+     Bez nastaveného servera beží appka v demo režime s plnými právami, nech sa dá
+     vyskúšať naprázdno (a nech fungujú automatické testy). */
+  const demoMode = !getApiBase();
+  const [me, setMe] = useState(undefined);
+  const [authError, setAuthError] = useState("");
+
+  const caps = useMemo(() => capsOf(me?.role), [me]);
+  const mySections = useMemo(() => sectionsOf(me?.role), [me]);
+  const canEditCells = Boolean(me) && (mySections.length > 0 || (caps.ownOff && me.crewId));
+  const canEditAll = Boolean(me) && mySections.length > 0; // vedúci a admin — hromadné úpravy, výmeny
+  const canEdit = canEditAll; // deklarované skoro, nech ho môžu použiť efekty nižšie (skratky a pod.)
 
   /* --- téma appky: svetlý / tmavý / auto (podľa systému) --- */
   const [theme, setThemeState] = useState(() => {
@@ -151,6 +159,46 @@ export default function App() {
   const canUndo = undoStackRef.current.length > 0;
   const canRedo = redoStackRef.current.length > 0;
 
+  /* --- overenie prihlásenia pri štarte ---
+     Ak appku otvoril prihlasovací odkaz z mailu (…/?login=TOKEN), token sa hneď
+     vymení za session cookie a z adresy sa odstráni, nech sa nedá omylom preposlať. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (demoMode) {
+        if (!cancelled) setMe(DEMO_USER);
+        return;
+      }
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get("login");
+      if (token) {
+        try {
+          await authVerify(token);
+        } catch (e) {
+          if (!cancelled) setAuthError(e.message || "Prihlásenie zlyhalo.");
+        }
+        url.searchParams.delete("login");
+        window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      }
+      try {
+        const d = await authMe();
+        if (!cancelled) setMe(d.user || null);
+      } catch (e) {
+        if (!cancelled) {
+          setMe(null);
+          setAuthError(e.message || "Server neodpovedá.");
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLogout = async () => {
+    try { await authLogout(); } catch { /* ticho */ }
+    window.location.reload();
+  };
+
   /* --- načítanie zo servera (Krok 1: bez nastaveného Workera appka beží čisto na lokálnych ukážkových dátach) --- */
   const load = useCallback(async () => {
     // nová sada dát zo servera/dema nie je "úprava" — zásobník späť/znova sa začína odznova
@@ -192,7 +240,8 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // rozpis načítavame až keď vieme, kto je prihlásený (server ho inak nevydá)
+  useEffect(() => { if (me) load(); }, [load, me]);
 
   /* --- automatické odscrollovanie na dnešný deň pri otvorení appky --- */
   useEffect(() => {
@@ -210,18 +259,18 @@ export default function App() {
     });
   };
 
-  /* --- auto-refresh (iba viewer, alebo admin bez rozpracovaných zmien) --- */
+  /* --- auto-refresh (kto needituje, alebo nemá rozpracované zmeny) --- */
   useEffect(() => {
     const t = setInterval(() => {
-      if (getApiBase() && (!isAdmin || !dirty)) load();
+      if (getApiBase() && me && (!canEditCells || !dirty)) load();
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [isAdmin, dirty, load]);
+  }, [canEditCells, dirty, load, me]);
 
-  /* --- debounované ukladanie (iba admin) — v Kroku 1 (bez Workera) sa iba nastaví "uložené" lokálne --- */
+  /* --- debounované ukladanie — v demo režime (bez Workera) sa iba nastaví "uložené" lokálne --- */
   const saveTimer = useRef(null);
   useEffect(() => {
-    if (!loaded || !isAdmin || conflict) return;
+    if (!loaded || !canEditCells || conflict) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       if (!getApiBase()) {
@@ -231,7 +280,7 @@ export default function App() {
       }
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, nad, pendingHook, log, baseVersion: version, password: adminPassword });
+        const res = await saveData({ crew, cells, nad, pendingHook, log, baseVersion: version });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -240,8 +289,8 @@ export default function App() {
           setConflict(true);
           setStatus("");
         } else if (e instanceof ApiError && e.status === 401) {
-          setIsAdmin(false);
-          setLoginError("Heslo už neplatí, prihlás sa znova.");
+          setMe(null);
+          setAuthError("Prihlásenie vypršalo, prihlás sa znova.");
           setStatus("");
         } else {
           setStatus("Uloženie zlyhalo: " + e.message);
@@ -448,8 +497,21 @@ export default function App() {
     return out;
   };
 
+  // čo smie prihlásený človek robiť s bunkou danej osoby: "full" | "off" | "none"
+  const accessFor = useCallback(
+    (crewId) => cellAccess(me, crew.find((c) => c.id === crewId)),
+    [me, crew]
+  );
+
   const handleCellClick = (pos, event) => {
-    if (!bulkMode) { setSel(pos); return; }
+    if (!bulkMode) {
+      if (accessFor(pos.crewId) === "none") {
+        setStatus("Túto časť rozpisu upravuje niekto iný — ty ju vidíš len na čítanie.");
+        return;
+      }
+      setSel(pos);
+      return;
+    }
     const k = key(pos.iso, pos.crewId);
     const anchor = anchorRef.current;
     const isRangeSelect = Boolean(event?.shiftKey && anchor);
@@ -587,21 +649,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bulkMode, canEdit, selectedKeys, filteredDays, filteredCrew, applyBulk, undoCells, redoCells]);
 
-  /* --- admin prihlásenie --- */
-  const handleLogin = (pw) => {
-    if (!pw) return;
-    try { localStorage.setItem(ADMIN_STORAGE_KEY, pw); } catch { /* ticho */ }
-    setAdminPassword(pw);
-    setIsAdmin(true);
-    setLoginError("");
-    setStatus("Prihlásenie overí prvá úprava alebo uloženie.");
-  };
-  const handleLogout = () => {
-    try { localStorage.removeItem(ADMIN_STORAGE_KEY); } catch { /* ticho */ }
-    setIsAdmin(false);
-    setAdminPassword("");
-  };
-
   const resolveConflict = async () => {
     await load();
   };
@@ -621,6 +668,16 @@ export default function App() {
   );
 
   const togglePanel = (p) => { setPanel(panel === p ? null : p); setMenu(null); };
+
+  /* --- kým nevieme, kto je prihlásený, appku nezobrazujeme (rozpis nemá vidieť nikto cudzí) --- */
+  if (me === undefined) {
+    return (
+      <div className="min-h-screen bg-f-bg text-f-faint font-sans flex items-center justify-center text-sm">
+        Overujem prihlásenie…
+      </div>
+    );
+  }
+  if (me === null) return <LoginScreen initialError={authError} />;
 
   return (
     <div className="min-h-screen bg-f-bg text-f-text font-sans">
@@ -649,8 +706,8 @@ export default function App() {
 
             <button title="NAD časy" onClick={() => togglePanel("nad")} className={`w-8 h-8 rounded-md border flex items-center justify-center ${panel === "nad" ? "border-f-accent bg-f-accent text-f-ink" : "border-f-border bg-f-panel text-f-muted hover:text-f-text"}`}>⏱</button>
 
-            {/* Hromadný výber — iba pre admina, preto samostatná ikonka len keď je canEdit */}
-            {canEdit && (
+            {/* Hromadný výber — iba pre vedúcich a admina (kto smie prepisovať celé stĺpce) */}
+            {canEditAll && (
               <button
                 title="Hromadný výber"
                 onClick={toggleBulkMode}
@@ -678,8 +735,11 @@ export default function App() {
                   <ThemeToggle theme={theme} onChange={setTheme} />
                 </div>
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
-                <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">{isAdmin ? "Admin" : "Prihlásenie"}</button>
-                {canEdit && (
+                <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Môj účet</button>
+                {caps.users && (
+                  <button onClick={() => togglePanel("users")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Prístupy</button>
+                )}
+                {canEditAll && (
                   <>
                     <div className="border-t border-f-hair my-1" />
                     <div className="flex gap-1 px-2.5 py-1">
@@ -687,12 +747,14 @@ export default function App() {
                       <button onClick={() => { redoCells(); setMenu(null); }} disabled={!canRedo} title="Znova (Ctrl/Cmd+Shift+Z)" className="flex-1 px-2 py-1 rounded-md text-sm bg-f-panel2 text-f-text hover:bg-f-border disabled:opacity-30">↷ Znova</button>
                     </div>
                     <div className="border-t border-f-hair my-1" />
-                    <button onClick={() => togglePanel("import")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import z chatu</button>
-                    <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>
-                    <button onClick={() => togglePanel("hook")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
-                      WhatsApp fronta
-                      {pendingHook.length > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
-                    </button>
+                    {caps.pending && <button onClick={() => togglePanel("import")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import z chatu</button>}
+                    {caps.crew && <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>}
+                    {caps.pending && (
+                      <button onClick={() => togglePanel("hook")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
+                        WhatsApp fronta
+                        {pendingHook.length > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -753,20 +815,19 @@ export default function App() {
         )}
       </header>
 
-      {panel === "admin" && (
-        <AdminPanel isAdmin={isAdmin} onLogin={handleLogin} onLogout={handleLogout} onClose={() => setPanel(null)} lastError={loginError} />
-      )}
-      {panel === "crew" && canEdit && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
+      {panel === "admin" && <AdminPanel me={me} onLogout={handleLogout} onClose={() => setPanel(null)} />}
+      {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} />}
+      {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
-      {panel === "nad" && <NadPanel nad={nad} canEdit={canEdit} onSetNad={setNad} onClose={() => setPanel(null)} />}
-      {panel === "hook" && canEdit && (
+      {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
+      {panel === "hook" && caps.pending && (
         <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} onResolve={resolveHook} onClose={() => setPanel(null)} />
       )}
-      {panel === "import" && canEdit && (
-        <ImportPanel crew={crew} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} adminPassword={adminPassword} />
+      {panel === "import" && caps.pending && (
+        <ImportPanel crew={crew} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} />
       )}
 
-      {bulkMode && canEdit && (
+      {bulkMode && canEditAll && (
         // min-h nech je pevná — text sa mení podľa počtu vybraných buniek a bez pevnej výšky by
         // sa pri prvom výbere (0 -> 1 bunka) tabuľka pod tým o pár pixelov posunula (iný počet
         // riadkov textu), čo je pri práve prebiehajúcom ťahaní/označovaní rušivé.
@@ -778,13 +839,13 @@ export default function App() {
       )}
 
       {/* rezerva miesta dole, nech fixný panel (editor bunky / hromadný výber) neprekrýva posledné riadky tabuľky */}
-      <div style={{ paddingBottom: bulkMode ? 250 : sel && canEdit ? 190 : 0 }}>
+      <div style={{ paddingBottom: bulkMode ? 250 : sel && canEditCells ? 190 : 0 }}>
         <ScheduleTable
           days={filteredDays}
           crew={filteredCrew}
           cells={cells}
           cellOf={cellOf}
-          canEdit={canEdit}
+          canEdit={canEditCells}
           bulkMode={bulkMode}
           selectedKeys={selectedKeys}
           onCellClick={handleCellClick}
@@ -806,19 +867,20 @@ export default function App() {
         />
       )}
 
-      {sel && canEdit && !bulkMode && (
+      {sel && canEditCells && !bulkMode && accessFor(sel.crewId) !== "none" && (
         <CellEditor
           sel={sel}
           crew={crew}
           cell={cellOf(sel.iso, sel.crewId)}
           skDate={skDate}
+          access={accessFor(sel.crewId)}
           onSet={(patch) => setCell(sel.iso, sel.crewId, patch)}
           onSwap={(otherId) => { swap(sel.iso, sel.crewId, otherId); setSel(null); }}
           onClose={() => setSel(null)}
         />
       )}
 
-      {bulkMode && canEdit && (
+      {bulkMode && canEditAll && (
         <BulkActionBar
           count={selectedKeys.size}
           allowDuel={bulkAllowsDuel}

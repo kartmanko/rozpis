@@ -1,59 +1,71 @@
 import { useState } from "react";
-import { getApiBase, setApiBase } from "../api";
+import { getApiBase, setApiBase, hasBreakGlassPassword, setBreakGlassPassword } from "../api";
+import { USER_ROLES } from "../permissions";
 
-export default function AdminPanel({ isAdmin, onLogin, onLogout, onClose, lastError }) {
-  const [pw, setPw] = useState("");
+/* Panel "Môj účet" — kto som, čo smiem, odhlásenie a technické nastavenie servera. */
+export default function AdminPanel({ me, onLogout, onClose }) {
   const [apiBase, setApiBaseInput] = useState(getApiBase());
+  const [saved, setSaved] = useState(false);
 
-  const saveApiBase = () => setApiBase(apiBase.trim());
+  const saveApiBase = () => {
+    setApiBase(apiBase.trim());
+    setSaved(true);
+  };
+
+  const roleInfo = USER_ROLES.find((r) => r.key === me?.role);
 
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center mb-2.5">
-        <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">{isAdmin ? "Admin" : "Prihlásenie admina"}</div>
+        <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Môj účet</div>
         <div className="grow" />
         <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
-      {!getApiBase() && (
-        <div className="mb-3 p-2 rounded-lg bg-f-r/10 border border-f-r/50 text-xs text-f-r">
-          Backend (Cloudflare Worker) ešte nie je nastavený. Zadaj jeho adresu nižšie
-          (napr. <code>https://rozpis-worker.tvoj-ucet.workers.dev</code>) — bez toho appka
-          nevie ukladať ani načítavať dáta.
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-2 items-center mb-3">
-        <label className="text-xs text-f-faint">Adresa Workera:</label>
-        <input
-          value={apiBase}
-          onChange={(e) => setApiBaseInput(e.target.value)}
-          placeholder="https://rozpis-worker.tvoj-ucet.workers.dev"
-          className="px-2 py-1 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-56"
-        />
-        <button onClick={saveApiBase} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-text transition-colors">Uložiť</button>
+      <div className="p-2.5 rounded-lg bg-f-panel2 border border-f-border mb-3">
+        <div className="text-sm font-semibold text-f-text">{me?.name || me?.email || "Neznámy"}</div>
+        {me?.email && <div className="text-xs font-mono text-f-faint">{me.email}</div>}
+        <div className="text-xs text-f-a mt-1.5">{roleInfo?.label || me?.role}</div>
+        {roleInfo?.hint && <div className="text-[11px] text-f-faint mt-0.5">{roleInfo.hint}</div>}
+        {me?.demo && <div className="text-[11px] text-f-accent mt-1.5">Demo režim — dáta sú len v tomto prehliadači.</div>}
       </div>
 
-      {isAdmin ? (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-f-a">Si prihlásený ako admin — editácia je odomknutá.</span>
-          <div className="grow" />
-          <button onClick={onLogout} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-text transition-colors">Odhlásiť sa</button>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2 items-center">
-          <input
-            type="password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            placeholder="admin heslo"
-            className="px-2 py-1 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text placeholder:text-f-faint2"
-            onKeyDown={(e) => e.key === "Enter" && onLogin(pw)}
-          />
-          <button onClick={() => onLogin(pw)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-accent hover:brightness-110 text-f-ink transition-colors">Prihlásiť sa</button>
-          {lastError && <span className="text-sm text-f-accent">{lastError}</span>}
-        </div>
+      {!me?.demo && (
+        <button
+          onClick={onLogout}
+          className="w-full mb-3 px-3 py-2 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-text transition-colors"
+        >
+          Odhlásiť sa
+        </button>
       )}
+
+      <details>
+        <summary className="text-[11px] font-bold uppercase tracking-wider text-f-faint cursor-pointer">Technické nastavenie</summary>
+
+        <div className="flex flex-wrap gap-2 items-center mt-2.5">
+          <label className="text-xs text-f-faint">Adresa servera:</label>
+          <input
+            value={apiBase}
+            onChange={(e) => { setApiBaseInput(e.target.value); setSaved(false); }}
+            placeholder="https://api.kartmanko.cc"
+            className="px-2 py-1 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-56"
+          />
+          <button onClick={saveApiBase} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-text transition-colors">Uložiť</button>
+          {saved && <span className="text-xs text-f-a">Uložené — obnov stránku.</span>}
+        </div>
+
+        {hasBreakGlassPassword() && (
+          <div className="mt-2.5 p-2 rounded-lg bg-f-accent/10 border border-f-accent/50 text-xs text-f-text">
+            <div>Si prihlásený núdzovým admin heslom, nie cez mail.</div>
+            <button
+              onClick={() => { setBreakGlassPassword(""); window.location.reload(); }}
+              className="mt-1.5 px-2 py-0.5 rounded-lg bg-f-accent text-f-ink font-bold"
+            >
+              Zrušiť núdzový prístup
+            </button>
+          </div>
+        )}
+      </details>
     </div>
   );
 }

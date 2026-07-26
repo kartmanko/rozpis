@@ -1,18 +1,32 @@
-name = "rozpis-worker"
+name = "f18"
 main = "src/index.js"
 compatibility_date = "2026-07-01"
+workers_dev = true
 
-# KV namespace pre uložený stav rozpisu.
-# Vytvor: `wrangler kv namespace create ROZPIS_KV`
-# a id nižšie nahraď hodnotou, ktorú príkaz vypíše.
+# KV namespace pre uložený stav rozpisu, používateľov a prihlásení.
 [[kv_namespaces]]
 binding = "ROZPIS_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "5f697585766440928951568950598ccd"
 
-# Tajomstvá (nedávaj ich sem do repozitára!) nastav príkazmi:
-#   wrangler secret put ADMIN_PASSWORD
-#   wrangler secret put ANTHROPIC_API_KEY
+# Tajomstvá (nikdy nie sem do repozitára!) nastav v Cloudflare dashboarde
+# (Worker f18 -> Settings -> Variables and Secrets -> typ "Secret"),
+# alebo príkazmi:
+#   wrangler secret put ADMIN_PASSWORD      # núdzový prístup hlavného admina
+#   wrangler secret put ANTHROPIC_API_KEY   # rozpoznávanie WhatsApp screenshotov
+#   wrangler secret put HOOK_SECRET         # WhatsApp bridge
+#   wrangler secret put RESEND_API_KEY      # odosielanie prihlasovacích mailov
 #
-# Voliteľné premenné (nie sú tajné, môžu byť tu):
+# Verejné premenné (nie sú tajné, môžu byť tu):
 [vars]
-ALLOWED_ORIGIN = "*"
+# Odkiaľ smie appka volať server. Kvôli prihlasovacej cookie tu musí byť
+# konkrétna adresa, nie "*" — prehliadač inak cookie neprijme.
+ALLOWED_ORIGIN = "https://farma.kartmanko.cc"
+# Adresa appky — používa sa v prihlasovacom maile na zostavenie odkazu.
+APP_URL = "https://farma.kartmanko.cc"
+# Doména, na ktorú sa viaže prihlasovacia cookie (appka aj server sú jej podadresy).
+COOKIE_DOMAIN = "kartmanko.cc"
+# Odosielateľ prihlasovacích mailov (doména musí byť overená v Resende).
+MAIL_FROM = "FARMA rozpis <farma@kartmanko.cc>"
+# Prvý účet, ktorý sa smie prihlásiť, kým je zoznam používateľov prázdny.
+# Automaticky sa mu pridelí rola hlavného admina.
+BOOTSTRAP_ADMIN_EMAIL = "chutnucky@gmail.com"
