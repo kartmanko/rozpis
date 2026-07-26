@@ -353,80 +353,6 @@ async function handlePostHook(request, env) {
   return json({ queued: true, id: entry.id, version: next.version }, 200, env);
 }
 
-/* ---------- DOČASNÉ: nastavenie DNS pre odosielanie mailov ----------
-   Zistí od Resendu, aké DNS záznamy doména potrebuje, a zapíše ich do
-   Cloudflare. Volá sa raz, potom sa tento kód zo servera odstráni.        */
-async function nastavDns(url, env, json) {
-  const ZONA = "kartmanko.cc";
-  const kroky = [];
-  const cft = (url.searchParams.get("cft") || "").trim();
-  const rk = (url.searchParams.get("rk") || "").trim() || (await env.ROZPIS_KV.get("nastavenie:mail_key")) || "";
-  if (!rk) return json({ chyba: "chyba kluc na maily" }, 200, env);
-
-  const resend = (cesta, init) =>
-    fetch("https://api.resend.com" + cesta, {
-      ...init,
-      headers: { Authorization: `Bearer ${rk}`, "Content-Type": "application/json" },
-    });
-  const cf = (cesta, init) =>
-    fetch("https://api.cloudflare.com/client/v4" + cesta, {
-      ...init,
-      headers: { Authorization: `Bearer ${cft}`, "Content-Type": "application/json" },
-    });
-
-  // 0. najprv over prístup do Cloudflare (nech vieme obe veci naraz)
-  let rz = await cf("/zones?name=" + ZONA);
-  const zony = await rz.json().catch(() => ({}));
-  const zonaId = zony?.result?.[0]?.id;
-  kroky.push({ krok: "zona", stav: rz.status, najdena: !!zonaId, chyba: zony?.errors?.[0]?.message });
-
-  // 1. nájdi doménu v Resende
-  let r = await resend("/domains");
-  let telo = await r.json().catch(() => ({}));
-  let dom = (telo.data || []).find((x) => x.name === ZONA);
-  kroky.push({ krok: "zoznam-domen", stav: r.status, najdena: !!dom });
-
-  if (!dom) {
-    r = await resend("/domains", { method: "POST", body: JSON.stringify({ name: ZONA, region: "eu-west-1" }) });
-    dom = await r.json().catch(() => ({}));
-    kroky.push({ krok: "vytvor-domenu", stav: r.status, id: dom.id, chyba: dom.message });
-  }
-  if (!dom || !dom.id) return json({ kroky, chyba: "domena sa nenasla" }, 200, env);
-
-  // 2. vypýtaj si potrebné DNS záznamy
-  r = await resend("/domains/" + dom.id);
-  const detail = await r.json().catch(() => ({}));
-  const zaznamy = detail.records || [];
-  kroky.push({ krok: "detail-domeny", stav: r.status, pocet: zaznamy.length, stavDomeny: detail.status });
-  if (!zaznamy.length) return json({ kroky, chyba: "resend nedal ziadne zaznamy" }, 200, env);
-
-  if (!zonaId) return json({ kroky, chyba: "zona sa nenasla" }, 200, env);
-
-  // 4. zapíš záznamy
-  for (const z of zaznamy) {
-    const meno = !z.name || z.name === "@" ? ZONA : z.name.endsWith(ZONA) ? z.name : z.name + "." + ZONA;
-    const telo2 = { type: z.type, name: meno, content: z.value, ttl: 1 };
-    if (z.type === "MX") telo2.priority = Number(z.priority ?? 10);
-    if (z.type === "CNAME" || z.type === "A") telo2.proxied = false;
-    const rr = await cf("/zones/" + zonaId + "/dns_records", { method: "POST", body: JSON.stringify(telo2) });
-    const vysl = await rr.json().catch(() => ({}));
-    kroky.push({
-      krok: "zapis",
-      typ: z.type,
-      meno,
-      stav: rr.status,
-      ok: !!vysl.success,
-      chyba: vysl?.errors?.[0]?.message,
-    });
-  }
-
-  // 5. požiadaj Resend o overenie
-  r = await resend("/domains/" + dom.id + "/verify", { method: "POST" });
-  kroky.push({ krok: "overenie", stav: r.status });
-
-  return json({ kroky }, 200, env);
-}
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -453,19 +379,6 @@ export default {
     }
     if (url.pathname === "/auth/users" && request.method === "POST") {
       return handlePostUsers(request, env, json);
-    }
-
-    // DOČASNÉ: jednorazové nastavenie DNS pre odosielanie mailov.
-    // Beží na serveri, lebo ten sa na internet dostane. Po použití sa maže.
-    if (url.pathname === "/_nastav-dns" && request.method === "GET") {
-      if (url.searchParams.get("s") !== "6d788b99008d16888b04f548") {
-        return json({ error: "Not found" }, 404, env);
-      }
-      try {
-        return await nastavDns(url, env, json);
-      } catch (e) {
-        return json({ vynimka: String(e && e.message ? e.message : e) }, 200, env);
-      }
     }
 
     if (url.pathname === "/data" && request.method === "GET") {
