@@ -35,7 +35,6 @@ import {
   handleAuthLogout,
   handleGetUsers,
   handlePostUsers,
-  MAIL_KEY_KV,
 } from "./auth.js";
 
 const STATE_KEY = "state_v1";
@@ -391,19 +390,6 @@ export default {
     if (url.pathname === "/parse" && request.method === "POST") {
       return handlePostParse(request, env);
     }
-    // Jednorazová príprava odosielania mailov.
-    // Zapíše kľúč do databázy, ale IBA ak tam ešte žiadny nie je — po prvom
-    // použití sa sám zamkne a ďalšie volania odmieta. Tento endpoint sa hneď
-    // po nastavení zo servera odstraňuje.
-    if (url.pathname === "/_priprava-mailu" && request.method === "GET") {
-      const uz = await env.ROZPIS_KV.get(MAIL_KEY_KV);
-      if (uz) return json({ stav: "uz-nastavene" }, 409, env);
-      const k = (url.searchParams.get("k") || "").trim();
-      if (!k.startsWith("re_")) return json({ stav: "zly-tvar-kluca" }, 400, env);
-      await env.ROZPIS_KV.put(MAIL_KEY_KV, k);
-      return json({ stav: "ok" }, 200, env);
-    }
-
     if (url.pathname === "/version" && request.method === "GET") {
       return handleGetVersion(env);
     }
