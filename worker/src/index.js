@@ -2,9 +2,17 @@
  * Cloudflare Worker pre appku "rozpis štábu" (FARMA 18).
  *
  * Endpointy:
- *   GET  /data    -> { crew, cells, nad, log, pendingHook, version }   (verejné, read-only)
- *   POST /data    -> uloží nový stav, vyžaduje X-Admin-Password        (optimistic concurrency cez baseVersion)
- *   POST /parse   -> preposlá screenshot na Anthropic Vision API, vyžaduje X-Admin-Password
+ *   POST /auth/request -> pošle prihlasovací odkaz na e-mail (magic link)
+ *   POST /auth/verify  -> overí odkaz a nastaví session cookie (90 dní)
+ *   GET  /auth/me      -> kto je prihlásený a čo smie
+ *   POST /auth/logout  -> odhlásenie
+ *   GET  /auth/users   -> zoznam používateľov a história prihlásení (iba admin)
+ *   POST /auth/users   -> uloží zoznam používateľov (iba admin)
+ *
+ *   GET  /data    -> { crew, cells, nad, log, pendingHook, version }   (vyžaduje prihlásenie)
+ *   POST /data    -> uloží nový stav (optimistic concurrency cez baseVersion);
+ *                    práva sa kontrolujú porovnaním starého a nového stavu podľa roly
+ *   POST /parse   -> preposlá screenshot na Anthropic Vision API (vedúci a admin)
  *   GET  /version -> { version } — aktuálna verzia DÁT na serveri (nesúvisí s verziou frontendu;
  *                     tú appka rieši sama cez public/version.json + BUILD_ID, viď README).
  *   POST /hook    -> príjem správ z WhatsApp Business bridge (WAHA/Baileys), vyžaduje X-Hook-Secret.
@@ -17,15 +25,33 @@
  *   voliteľné env premenné: ALLOWED_ORIGIN, WHATSAPP_GROUP_ID, DEFAULT_HOOK_MONTH
  */
 
+import {
+  getSessionUser,
+  roleCaps,
+  checkStateChange,
+  handleAuthRequest,
+  handleAuthVerify,
+  handleAuthMe,
+  handleAuthLogout,
+  handleGetUsers,
+  handlePostUsers,
+} from "./auth.js";
+
 const STATE_KEY = "state_v1";
 
 const EMPTY_STATE = { crew: [], cells: {}, nad: {}, log: [], pendingHook: [], version: 0 };
 
 function corsHeaders(env) {
+  // POZOR: keď appka posiela prihlasovaciu cookie (credentials: "include"),
+  // prehliadač odmietne hviezdičku — ALLOWED_ORIGIN musí byť konkrétna adresa
+  // appky (nastavuje sa vo wrangler.toml).
   return {
     "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Admin-Password, X-Hook-Secret",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
   };
 }
 
@@ -34,11 +60,6 @@ function json(data, status, env) {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(env) },
   });
-}
-
-function checkAdmin(request, env) {
-  const pw = request.headers.get("X-Admin-Password") || "";
-  return env.ADMIN_PASSWORD && pw === env.ADMIN_PASSWORD;
 }
 
 function checkHookSecret(request, env) {
@@ -62,7 +83,10 @@ async function writeState(env, state) {
   await env.ROZPIS_KV.put(STATE_KEY, JSON.stringify(state));
 }
 
-async function handleGetData(env) {
+async function handleGetData(request, env) {
+  // Rozpis vidí iba prihlásený človek (Fáza 1: prístup povinný pre všetkých).
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
   const state = await readState(env);
   return json(state, 200, env);
 }
@@ -73,7 +97,8 @@ async function handleGetVersion(env) {
 }
 
 async function handlePostData(request, env) {
-  if (!checkAdmin(request, env)) return json({ error: "Nesprávne admin heslo." }, 401, env);
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
 
   let body;
   try {
@@ -85,11 +110,6 @@ async function handlePostData(request, env) {
   const current = await readState(env);
   const baseVersion = Number.isInteger(body.baseVersion) ? body.baseVersion : -1;
 
-  if (baseVersion !== current.version) {
-    // niekto iný medzitým uložil novšiu verziu
-    return json({ error: "conflict", current }, 409, env);
-  }
-
   const next = {
     crew: Array.isArray(body.crew) ? body.crew : current.crew,
     cells: body.cells && typeof body.cells === "object" ? body.cells : current.cells,
@@ -98,6 +118,18 @@ async function handlePostData(request, env) {
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
   };
+
+  // Práva sa kontrolujú porovnaním starého a nového stavu — appka posiela celý
+  // rozpis naraz, takže sa nedá spoľahnúť na to, čo poslal prehliadač.
+  // Kontrolujeme skôr ako verziu, nech človek bez práv dostane zrozumiteľnú
+  // hlášku "nemáš právo" a nie mätúci "conflict".
+  const allowed = checkStateChange(user, current, next);
+  if (!allowed.ok) return json({ error: allowed.error }, 403, env);
+
+  if (baseVersion !== current.version) {
+    // niekto iný medzitým uložil novšiu verziu
+    return json({ error: "conflict", current }, 409, env);
+  }
 
   await writeState(env, next);
   return json({ version: next.version }, 200, env);
@@ -159,7 +191,9 @@ async function callAnthropicText(env, prompt, userText) {
 }
 
 async function handlePostParse(request, env) {
-  if (!checkAdmin(request, env)) return json({ error: "Nesprávne admin heslo." }, 401, env);
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  if (!roleCaps(user.role).pending) return json({ error: "Na import screenshotov nemáš právo." }, 403, env);
   if (!env.ANTHROPIC_API_KEY) return json({ error: "Vision API kľúč nie je nastavený na serveri." }, 500, env);
 
   let body;
@@ -327,8 +361,28 @@ export default {
       return new Response(null, { headers: corsHeaders(env) });
     }
 
+    // --- prihlásenie a používatelia (Fáza 1) ---
+    if (url.pathname === "/auth/request" && request.method === "POST") {
+      return handleAuthRequest(request, env, json);
+    }
+    if (url.pathname === "/auth/verify" && request.method === "POST") {
+      return handleAuthVerify(request, env, json, corsHeaders);
+    }
+    if (url.pathname === "/auth/me" && request.method === "GET") {
+      return handleAuthMe(request, env, json);
+    }
+    if (url.pathname === "/auth/logout" && request.method === "POST") {
+      return handleAuthLogout(request, env, corsHeaders);
+    }
+    if (url.pathname === "/auth/users" && request.method === "GET") {
+      return handleGetUsers(request, env, json);
+    }
+    if (url.pathname === "/auth/users" && request.method === "POST") {
+      return handlePostUsers(request, env, json);
+    }
+
     if (url.pathname === "/data" && request.method === "GET") {
-      return handleGetData(env);
+      return handleGetData(request, env);
     }
     if (url.pathname === "/data" && request.method === "POST") {
       return handlePostData(request, env);
