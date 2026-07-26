@@ -193,8 +193,21 @@ export async function getSessionUser(request, env) {
 
 /* ---------- odosielanie mailu (Resend) ---------- */
 
+/** Miesto v databáze, kde môže byť uložený kľúč na odosielanie mailov. */
+export const MAIL_KEY_KV = "nastavenie:mail_key";
+
+/**
+ * Kľúč na odosielanie mailov. Prednosť má tajomstvo nastavené v Cloudflare,
+ * záložne sa berie z databázy (tam ho vloží jednorazová príprava servera).
+ */
+export async function mailKey(env) {
+  if (env.RESEND_API_KEY) return env.RESEND_API_KEY;
+  return (await env.ROZPIS_KV.get(MAIL_KEY_KV)) || "";
+}
+
 async function sendMagicMail(env, email, link) {
-  if (!env.RESEND_API_KEY) throw new Error("RESEND_API_KEY nie je nastavený na serveri.");
+  const apiKey = await mailKey(env);
+  if (!apiKey) throw new Error("Kľúč na odosielanie mailov nie je nastavený na serveri.");
 
   const html = `<!doctype html><html lang="sk"><body style="margin:0;background:#f5f5f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:520px;margin:0 auto;padding:32px 20px;">
@@ -216,7 +229,7 @@ async function sendMagicMail(env, email, link) {
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
