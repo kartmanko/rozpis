@@ -40,13 +40,16 @@ const ROLE_SECTIONS = {
 };
 
 // Ostatné práva.
+// "sadzby" = meniť denné sadzby profesií (Fáza 2). Sú to peniaze, preto ich smie
+//            prepisovať iba hlavný admin a hlavný produkčný — vedúci sekcií nie.
+// "vykazVsetkych" = vidieť výkazy celého štábu, nielen svoj vlastný.
 const ROLE_CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true },
-  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false },
-  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false },
-  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true },
+  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
+  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
+  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false },
 };
 
 export function roleCaps(role) {
@@ -429,8 +432,19 @@ export async function handlePostUsers(request, env, json) {
 
 /* ---------- kontrola práv pri ukladaní rozpisu ---------- */
 
+// Pozor: každé pole bunky, ktoré appka ukladá, musí byť aj tu. Čo tu chýba,
+// to diff neuvidí a server by takú zmenu prepustil bez kontroly práv.
+// "nadcas" = nahlásené hodiny nadčasu (Fáza 2).
 const normCell = (c) =>
-  c ? JSON.stringify({ off: !!c.off, shift: c.shift ?? null, duel: !!c.duel, note: c.note || "" }) : "";
+  c
+    ? JSON.stringify({
+        off: !!c.off,
+        shift: c.shift ?? null,
+        duel: !!c.duel,
+        note: c.note || "",
+        nadcas: Number(c.nadcas) || 0,
+      })
+    : "";
 
 function changedKeys(a, b) {
   const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
@@ -470,6 +484,11 @@ export function checkStateChange(user, current, next) {
     return { ok: false, error: "NAD časy smie meniť iba admin alebo hlavný produkčný." };
   }
 
+  // zmeny v sadzbách (Fáza 2) — peniaze, preto najprísnejšie
+  if (changedPlain(current.sadzby, next.sadzby).length && !caps.sadzby) {
+    return { ok: false, error: "Sadzby smie meniť iba hlavný admin alebo hlavný produkčný." };
+  }
+
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };
@@ -492,8 +511,10 @@ export function checkStateChange(user, current, next) {
       const b = (next.cells || {})[key] || {};
       const sameRest =
         (a.shift ?? null) === (b.shift ?? null) && !!a.duel === !!b.duel && (a.note || "") === (b.note || "");
+      // Vo vlastnom stĺpci smie človek meniť "nemôžem" (off) a nahlásiť si
+      // hodiny nadčasu (nadcas). Smeny, Duel ani poznámku si nastaviť nesmie.
       if (sameRest) continue;
-      return { ok: false, error: "Vo vlastnom stĺpci si smieš meniť iba nedostupnosť, nie smeny." };
+      return { ok: false, error: "Vo vlastnom stĺpci si smieš meniť iba nedostupnosť a nahlásiť nadčas, nie smeny." };
     }
 
     return { ok: false, error: "Na túto časť rozpisu nemáš právo." };

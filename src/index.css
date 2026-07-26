@@ -78,3 +78,31 @@ html.light {
     overflow: visible !important;
   }
 }
+
+/* Tlač výkazu (Fáza 2) — pri tlači výkazu sa schová rozpis aj všetko ostatné
+   a na papier ide iba samotný výkaz. Trieda sa na <body> nasadí len na čas tlače. */
+body.tlac-rezim-vykaz .tlac-skryt-pri-vykaze {
+  display: none;
+}
+
+@media print {
+  .tlac-vykaz,
+  .tlac-vykaz * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #bbb !important;
+  }
+  .tlac-vykaz {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  /* každý človek na vlastnú stranu, nech sa výkaz dá rozdať po jednom */
+  .tlac-strana {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .tlac-zlom-pred {
+    break-before: page;
+    page-break-before: always;
+  }
+}

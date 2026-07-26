@@ -21,9 +21,18 @@ import WhatsAppQueuePanel from "./components/WhatsAppQueuePanel";
 import ThemeToggle from "./components/ThemeToggle";
 import LoginScreen from "./components/LoginScreen";
 import UsersPanel from "./components/UsersPanel";
+import SadzbyPanel from "./components/SadzbyPanel";
+import VykazyPanel from "./components/VykazyPanel";
+import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
-const emptyCell = { off: false, shift: null, duel: false, note: "" };
+// "nadcas" = nahlásené hodiny nadčasu k tomuto dňu (Fáza 2).
+const emptyCell = { off: false, shift: null, duel: false, note: "", nadcas: 0 };
+
+// Bunka, v ktorej nie je vôbec nič, sa zo stavu maže — nech databáza nerastie prázdnymi
+// bunkami. Pozor: každé pole, ktoré bunka drží, musí byť aj tu (aj nadčas), inak by sa
+// bunka s nahláseným nadčasom ticho zmazala.
+const prazdnaBunka = (c) => !c.off && !c.shift && !c.duel && !c.note && !Number(c.nadcas);
 
 /* --- kontrola verzie appky: keď je nasadený nový build, otvorená appka (napr. pripnutá na ploche iPhonu) sa sama obnoví --- */
 async function fetchLatestBuildId() {
@@ -42,6 +51,7 @@ export default function App() {
 
   const [crew, setCrew] = useState(defaultCrew);
   const [cells, setCells] = useState({}); // "iso|crewId" -> { off, shift, duel, note }
+  const [sadzby, setSadzbyState] = useState({}); // profesia -> { den, duel, denDuel, nadcasPct } (Fáza 2)
   const [nad, setNadState] = useState({}); // "A"|"B"|"C"|"R"|"duel" -> { depart, return } — univerzálne, neviaže sa na dátum
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
@@ -91,7 +101,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -124,6 +134,13 @@ export default function App() {
   const filteredDays = useMemo(
     () => (activeMonth === null ? days : days.filter((d) => d.month === activeMonth)),
     [days, activeMonth]
+  );
+
+  /* --- výkazy (Fáza 2) — majú vlastný výber mesiaca, nezávislý od tabuľky --- */
+  const [vykazMesiac, setVykazMesiac] = useState(null); // null = celá produkcia
+  const vykazDni = useMemo(
+    () => (vykazMesiac === null ? days : days.filter((d) => d.month === vykazMesiac)),
+    [days, vykazMesiac]
   );
 
   /* --- automatická kontrola novej verzie appky (na otvorenie, návrat do popredia, aj periodicky) --- */
@@ -209,6 +226,7 @@ export default function App() {
       setCrew(DEMO_DATA.crew);
       setCells(DEMO_DATA.cells);
       setNadState(DEMO_DATA.nad);
+      setSadzbyState({});
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -223,6 +241,7 @@ export default function App() {
       if (d.crew?.length) setCrew(d.crew);
       setCells(d.cells || {});
       setNadState(d.nad || {});
+      setSadzbyState(d.sadzby || {});
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -280,7 +299,7 @@ export default function App() {
       }
       setSaving(true);
       try {
-        const res = await saveData({ crew, cells, nad, pendingHook, log, baseVersion: version });
+        const res = await saveData({ crew, cells, nad, sadzby, pendingHook, log, baseVersion: version });
         setVersion(res.version);
         setDirty(false);
         setStatus("Uložené na server.");
@@ -300,7 +319,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, pendingHook, log]);
+  }, [crew, cells, nad, sadzby, pendingHook, log]);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -359,7 +378,7 @@ export default function App() {
         const k = iso + "|" + cid;
         const cur = prev[k] || emptyCell;
         const next = { ...cur, ...patch };
-        const empty = !next.off && !next.shift && !next.duel && !next.note;
+        const empty = prazdnaBunka(next);
         const out = { ...prev };
         if (empty) delete out[k]; else out[k] = next;
         return out;
@@ -380,6 +399,25 @@ export default function App() {
     setDirty(true);
   }, []);
 
+  // Sadzby profesií (Fáza 2). Ukladá sa iba to, čo sa naozaj líši od predvoleného,
+  // nech v databáze nezostávajú zbytočné kópie predvolených čísel.
+  const setSadzba = useCallback((profesia, patch) => {
+    setSadzbyState((prev) => {
+      const zaklad = DEFAULT_SADZBY[profesia] || DEFAULT_SADZBY.kamera;
+      const spojene = { ...zaklad, ...(prev[profesia] || {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        const cislo = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
+        spojene[k] = Number.isFinite(cislo) && cislo >= 0 ? cislo : 0;
+      }
+      const rozdiel = {};
+      for (const [k, v] of Object.entries(spojene)) if (Number(v) !== Number(zaklad[k])) rozdiel[k] = v;
+      const out = { ...prev };
+      if (Object.keys(rozdiel).length) out[profesia] = rozdiel; else delete out[profesia];
+      return out;
+    });
+    setDirty(true);
+  }, []);
+
   /* --- potvrdenie/zahodenie nepriradenej správy z WhatsApp bridge --- */
   const resolveHook = useCallback(
     (entry, crewId) => {
@@ -395,7 +433,7 @@ export default function App() {
             const k = iso + "|" + crewId;
             const cur = out[k] || emptyCell;
             const next = { ...cur, off: false };
-            const empty = !next.off && !next.shift && !next.duel && !next.note;
+            const empty = prazdnaBunka(next);
             if (empty) delete out[k]; else out[k] = next;
           });
           return out;
@@ -429,7 +467,7 @@ export default function App() {
         selectedKeys.forEach((k) => {
           const cur = out[k] || emptyCell;
           const next = { ...cur, ...patch };
-          const empty = !next.off && !next.shift && !next.duel && !next.note;
+          const empty = prazdnaBunka(next);
           if (empty) delete out[k]; else out[k] = next;
         });
         return out;
@@ -734,6 +772,8 @@ export default function App() {
                   <span className="text-sm text-f-text">Motív</span>
                   <ThemeToggle theme={theme} onChange={setTheme} />
                 </div>
+                <button onClick={() => togglePanel("vykazy")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Výkazy</button>
+                <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Môj účet</button>
                 {caps.users && (
@@ -818,6 +858,23 @@ export default function App() {
       {panel === "admin" && <AdminPanel me={me} onLogout={handleLogout} onClose={() => setPanel(null)} />}
       {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} />}
       {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
+      {panel === "vykazy" && (
+        <VykazyPanel
+          crew={crew}
+          dni={vykazDni}
+          cellOf={cellOf}
+          sadzby={sadzby}
+          me={me}
+          canSeeAll={!!caps.vykazVsetkych}
+          mesiacIdx={vykazMesiac}
+          mesiace={monthsInRange}
+          onSetMesiac={setVykazMesiac}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {panel === "sadzby" && (
+        <SadzbyPanel sadzby={sadzby} canEdit={!!caps.sadzby} onSetSadzba={setSadzba} onClose={() => setPanel(null)} />
+      )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
       {panel === "hook" && caps.pending && (
@@ -874,6 +931,7 @@ export default function App() {
           cell={cellOf(sel.iso, sel.crewId)}
           skDate={skDate}
           access={accessFor(sel.crewId)}
+          sadzba={sadzbaProfesie(sadzby, crew.find((c) => c.id === sel.crewId)?.role || "kamera")}
           onSet={(patch) => setCell(sel.iso, sel.crewId, patch)}
           onSwap={(otherId) => { swap(sel.iso, sel.crewId, otherId); setSel(null); }}
           onClose={() => setSel(null)}

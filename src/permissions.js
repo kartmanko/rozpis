@@ -24,13 +24,15 @@ const SECTIONS = {
   viewer: [],
 };
 
+// "sadzby" = meniť denné sadzby profesií (Fáza 2) — iba admin a hlavný produkčný.
+// "vykazVsetkych" = vidieť výkazy celého štábu, nielen svoj vlastný.
 const CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true },
-  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false },
-  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false },
-  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true },
+  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
+  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
+  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false },
 };
 
 export const capsOf = (role) => CAPS[role] || CAPS.viewer;

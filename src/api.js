@@ -91,12 +91,14 @@ const jsonPost = (path, body) => request(path, {
 /* ---------- rozpis ---------- */
 
 export async function fetchData() {
-  // { crew, cells, nad, log, pendingHook, version }
+  // { crew, cells, nad, sadzby, log, pendingHook, version }
   return request("/data", { method: "GET" });
 }
 
-export async function saveData({ crew, cells, nad, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, pendingHook, log, baseVersion });
+// Pozor: každá časť stavu, ktorú appka ukladá, musí byť vymenovaná aj tu — čo tu
+// chýba, to sa na server nikdy nepošle a ticho sa to stratí. "sadzby" sú z Fázy 2.
+export async function saveData({ crew, cells, nad, sadzby, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, pendingHook, log, baseVersion });
 }
 
 export async function parseScreenshot({ base64, mediaType, month }) {

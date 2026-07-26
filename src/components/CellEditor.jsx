@@ -1,9 +1,67 @@
 import { DAY_SHIFTS } from "../constants";
+import { hodinyNadcasu, hodinovkaDnaC, nadcasDnaC, zakladDnaC, eur, hod, MAX_NADCAS_HODIN } from "../vykazy";
 
 const SHIFT_ON = { A: "bg-f-a", B: "bg-f-b", C: "bg-f-c", R: "bg-f-r" };
 
-// access: "full" = celá bunka, "off" = iba prepínač "nemôžem" (vlastný stĺpec člena štábu)
-export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate, access = "full" }) {
+/* Nahlásenie nadčasu k dňu (Fáza 2).
+   Nadčas si nahlasuje človek sám, nič sa neschvaľuje — ale všetko je vidieť
+   vo výkaze aj v Histórii, takže sa nedá zmeniť ticho. */
+function NadcasRiadok({ cell, sadzba, onSet }) {
+  const h = hodinyNadcasu(cell);
+  const zaklad = zakladDnaC(cell, sadzba);
+  const hodinovka = hodinovkaDnaC(cell, sadzba);
+  const suma = nadcasDnaC(cell, sadzba);
+  const zmen = (delta) => {
+    const nova = Math.max(0, Math.min(MAX_NADCAS_HODIN, Math.round((h + delta) * 2) / 2));
+    onSet({ nadcas: nova });
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-f-hair">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-bold text-f-text">Nadčas</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => zmen(-0.5)}
+            disabled={!h}
+            className="w-8 h-8 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold disabled:opacity-30"
+          >
+            −
+          </button>
+          <span className="w-16 text-center font-mono text-sm font-bold text-f-text">{h ? hod(h) : "0 h"}</span>
+          <button
+            onClick={() => zmen(0.5)}
+            className="w-8 h-8 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold"
+          >
+            +
+          </button>
+        </div>
+        {h > 0 && (
+          <button
+            onClick={() => onSet({ nadcas: 0 })}
+            className="px-2 py-1 rounded-lg text-[11px] bg-f-panel2 hover:bg-f-border text-f-muted"
+          >
+            Zrušiť
+          </button>
+        )}
+        {suma > 0 && <span className="ml-auto font-mono text-sm font-extrabold text-f-text">+{eur(suma)}</span>}
+      </div>
+      {h > 0 && !zaklad && (
+        <div className="text-[11px] text-f-accent mt-1.5">
+          V tento deň nie je pridelená smena ani Duel, takže sa nadčas nemá z čoho rátať — vo výkaze bude 0 €.
+        </div>
+      )}
+      {h > 0 && zaklad > 0 && (
+        <div className="text-[11px] text-f-faint mt-1.5">
+          {hod(h)} × {eur(hodinovka)} ({sadzba.nadcasPct} % z {eur(zaklad)} za tento deň).
+        </div>
+      )}
+    </div>
+  );
+}
+
+// access: "full" = celá bunka, "off" = iba prepínač "nemôžem" + nadčas (vlastný stĺpec člena štábu)
+export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate, access = "full", sadzba }) {
   const person = crew.find((c) => c.id === sel.crewId);
   const allowDuel = (person?.role || "kamera") === "kamera";
 
@@ -21,8 +79,9 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
         >
           {cell.off ? "× V tento deň nemôžem (klikni pre zrušenie)" : "Označiť: v tento deň nemôžem"}
         </button>
+        {sadzba && <NadcasRiadok cell={cell} sadzba={sadzba} onSet={onSet} />}
         <div className="text-xs text-f-faint mt-2">
-          Smeny prideľuje vedúci — ty si tu označuješ iba dni, keď nemôžeš. Zmena sa uloží hneď.
+          Smeny prideľuje vedúci — ty si tu označuješ iba dni, keď nemôžeš, a nahlasuješ nadčas. Zmena sa uloží hneď.
         </div>
       </div>
     );
@@ -36,7 +95,7 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
         <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-2">
-        <button onClick={() => onSet({ off: false, shift: null, duel: false })} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted transition-colors">Vyčistiť</button>
+        <button onClick={() => onSet({ off: false, shift: null, duel: false, nadcas: 0 })} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted transition-colors">Vyčistiť</button>
         <button onClick={() => onSet({ off: !cell.off })} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${cell.off ? "bg-f-accent text-f-ink" : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>× Nemôže</button>
         {DAY_SHIFTS.map((s) => (
           <button key={s} onClick={() => onSet({ shift: cell.shift === s ? null : s })} className={`px-3 py-1.5 rounded-lg text-sm font-mono font-bold transition-colors ${cell.shift === s ? `${SHIFT_ON[s]} text-f-ink` : "bg-f-panel2 hover:bg-f-border text-f-text"}`}>{s}</button>
@@ -64,6 +123,7 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
           {crew.filter((c) => c.id !== sel.crewId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
+      {sadzba && <NadcasRiadok cell={cell} sadzba={sadzba} onSet={onSet} />}
     </div>
   );
 }

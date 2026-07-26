@@ -188,6 +188,11 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                             <span className="inline-block min-w-[34px] font-mono text-[9px] font-bold text-f-ink bg-f-duel rounded px-1 py-0.5 tracking-wide">DUEL</span>
                           )}
                           {x.off && !x.shift && !x.duel && <span className="text-f-accent text-base font-bold leading-none">×</span>}
+                          {Number(x.nadcas) > 0 && (
+                            <span title="Nahlásený nadčas" className="inline-block font-mono text-[9px] font-bold text-f-muted2 border border-f-border rounded px-1 py-0.5">
+                              +{Number(x.nadcas)}h
+                            </span>
+                          )}
                           {x.note && <span className="text-[10px] text-f-muted truncate max-w-[70px]">{x.note}</span>}
                         </div>
                       </td>

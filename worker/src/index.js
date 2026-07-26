@@ -39,7 +39,8 @@ import {
 
 const STATE_KEY = "state_v1";
 
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, log: [], pendingHook: [], version: 0 };
+// "sadzby" = denné sadzby profesií (Fáza 2). Prázdne = appka použije predvolené.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, log: [], pendingHook: [], version: 0 };
 
 function corsHeaders(env) {
   // POZOR: keď appka posiela prihlasovaciu cookie (credentials: "include"),
@@ -114,6 +115,7 @@ async function handlePostData(request, env) {
     crew: Array.isArray(body.crew) ? body.crew : current.crew,
     cells: body.cells && typeof body.cells === "object" ? body.cells : current.cells,
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
+    sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
     log: Array.isArray(body.log) ? body.log.slice(0, 400) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
