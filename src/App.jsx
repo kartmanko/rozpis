@@ -13,6 +13,7 @@ import CellEditor from "./components/CellEditor";
 import CrewPanel from "./components/CrewPanel";
 import LogPanel from "./components/LogPanel";
 import ImportPanel from "./components/ImportPanel";
+import TabulkaPanel from "./components/TabulkaPanel";
 import AdminPanel from "./components/AdminPanel";
 import ScheduleTable from "./components/ScheduleTable";
 import BulkActionBar from "./components/BulkActionBar";
@@ -28,6 +29,7 @@ import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
+import { pouziNavrh } from "./tabulkaImport";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 // "nadcas" = nahlásené hodiny nadčasu k tomuto dňu (Fáza 2).
@@ -109,7 +111,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -725,6 +727,31 @@ export default function App() {
     [me, crew]
   );
 
+  /* Ľudia, ktorých rozpis smie prihlásený meniť celý — import tabuľky sa drží
+     v týchto medziach rovnako ako klikanie do tabuľky. */
+  const plnyPristupIds = useMemo(
+    () => crew.filter((c) => cellAccess(me, c) === "full").map((c) => c.id),
+    [me, crew]
+  );
+
+  /* Zápis celej importovanej tabuľky naraz: jedna zmena v histórii, jeden krok
+     späť a jeden zápis na server — nie stovky malých. */
+  const zapisTabulku = useCallback(
+    (zmeny, info) => {
+      if (!zmeny.length) return;
+      const kde = [info?.subor, info?.harok].filter(Boolean).join(" / ");
+      const detail = [
+        `${info?.nove || 0} vyplnených`,
+        info?.prepisane ? `${info.prepisane} prepísaných` : null,
+      ].filter(Boolean).join(", ");
+      commitCells(
+        (prev) => pouziNavrh(prev, zmeny),
+        `Import tabuľky${kde ? ` (${kde})` : ""}: ${zmeny.length} buniek — ${detail}`
+      );
+    },
+    [commitCells]
+  );
+
   const handleCellClick = (pos, event) => {
     if (!bulkMode) {
       if (accessFor(pos.crewId) === "none") {
@@ -980,6 +1007,7 @@ export default function App() {
                     </div>
                     <div className="border-t border-f-hair my-1" />
                     {caps.pending && <button onClick={() => togglePanel("import")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import z chatu</button>}
+                    {caps.pending && <button onClick={() => togglePanel("tabulka")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Import tabuľky (XLSX)</button>}
                     {caps.crew && <button onClick={() => togglePanel("crew")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Štáb</button>}
                     {caps.pending && (
                       <button onClick={() => togglePanel("hook")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
@@ -1105,6 +1133,9 @@ export default function App() {
       )}
       {panel === "import" && caps.pending && (
         <ImportPanel crew={crew} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} />
+      )}
+      {panel === "tabulka" && caps.pending && (
+        <TabulkaPanel crew={crew} cells={cells} dovolene={plnyPristupIds} onZapis={zapisTabulku} onClose={() => setPanel(null)} setStatus={setStatus} />
       )}
 
       {bulkMode && canEditAll && (

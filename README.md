@@ -51,6 +51,20 @@ nedostupnosť, admin ju potvrdí.
 
 **Reporty.** Denné reporty s históriou, export do CSV/XLSX a tlač do PDF.
 
+**Import starých tabuliek (XLSX / CSV).** Menu → **Import tabuľky (XLSX)**.
+Slúži na to, aby sa už rozpísaná sezóna nemusela klikať odznova. Appka si
+v súbore sama nájde stĺpec s dátumami, riadok s hlavičkou aj to, či sú ľudia
+v stĺpcoch alebo v riadkoch (dá sa to prepnúť ručne), mená spáruje so štábom
+(`guessCrew`) a nespárované ponúkne na doplnenie. Rozpoznáva `A/B/C/R`, duel,
+slová typu „nemôže“, „off“, „x“, „dovolenka“ a zvyšok textu odloží do poznámky.
+Platia pri tom tie isté pravidlá ako inde v appke: **prázdna bunka v súbore
+nikdy nič nezmaže**, bunka, ktorá už v appke niečo má, sa prepíše len po
+zaškrtnutí a až po tom, čo je vidieť zoznam `stará → nová`, nahlásený nadčas
+prežije prepis a importovať sa dá len ľuďom, ktorých rozpis smie prihlásený
+meniť aj klikaním. Celý import ide ako **jedna** zmena — jeden riadok
+v histórii, jeden krok späť a jeden zápis na server. Parsovanie je oddelené od
+UI v `src/tabulkaImport.js`, takže sa dá testovať bez prehliadača.
+
 **Dispo mail.** Dispozícia príde mailom na schránku napojenú cez Cloudflare
 Email Routing na Worker (handler `email()` v `worker/src/index.js`). Appka mail
 prečíta, vytiahne časy a mená a **odloží to ako návrh** — v `pendingDispo`.
@@ -170,6 +184,13 @@ npx wrangler dev worker/src/index.js --config worker/wrangler.toml \
 
 Tajomstvá pre lokálny beh patria do `worker/.dev.vars` (je v `.gitignore`).
 
+Testy bez siete a bez prehliadača:
+
+```
+node test-tabulka-import.mjs
+node worker/test-kv-setrenie.mjs
+```
+
 ---
 
 ## Nasadzovanie
@@ -192,4 +213,3 @@ keď sa `BUILD_ID` zmení, zahodia starú kešu a obnovia sa.
 - Nasadiť WhatsApp bridge na Fly.io a raz ho prepojiť s eSIM — párovacím kódom,
   netreba nič skenovať (`PAIR_NUMBER`, pozri `bridge/README.md`).
 - Doladiť UI na mobile.
-- Import existujúcich tabuliek z XLSX/CSV.
