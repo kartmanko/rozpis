@@ -25,3 +25,10 @@ Keď ti povie niečo nové z tejto kategórie, **hneď to sem dopíš**.
 - Cenu a závislosť na ďalšej platforme povedz **skôr**, než niečo navrhneš.
 - Predtým, než mu niečo prikážeš spraviť, over si, či to už nespravil.
 - Celé UI aj komentáre v kóde po slovensky.
+
+## Čo na naske nefunguje
+
+- Docker v UGOS Pro **nespustí projekt s `build:`** — projekt sa vytvorí
+  ("successfull deploy project"), ale hneď nato príde "Project launch failed".
+  Preto `bridge/nas-compose.yml` používa hotový obraz `node:20-alpine` a
+  zdrojáky si sťahuje pri štarte z GitHubu.

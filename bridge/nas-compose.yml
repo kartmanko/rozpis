@@ -1,9 +1,14 @@
 # Čítačka WhatsAppu na naske — verzia na skopírovanie do Docker UI.
 #
 # Načo je zvlášť: docker-compose.yml vedľa počíta s tým, že máš na disku
-# stiahnutý repozitár (build: .). Tento súbor si zdrojáky stiahne sám z GitHubu,
-# takže sa dá v Container Manageri (Synology) alebo Container Station (QNAP)
-# jednoducho vložiť ako nový projekt a nič sa nikam nekopíruje.
+# stiahnutý repozitár a že Docker vie obraz zostaviť (build:). Docker v UGOS Pro
+# na naske UGREEN projekt s "build:" prijme, ale spustiť ho nedokáže — v logoch
+# to skončí ako "Project launch failed". Preto sa tu nič nezostavuje: berie sa
+# hotový obraz node:20-alpine z Docker Hubu a zdrojáky čítačky sa doňho pri
+# štarte stiahnu z GitHubu. Vďaka tomu netreba na nasku nič kopírovať.
+#
+# Reštart kontajnera si zdrojáky stiahne znova, takže sa tým zároveň
+# aktualizuje. Prihlásenie do WhatsAppu to nezhodí — to je vo zväzku f18-auth.
 #
 # Vymeniť treba dve hodnoty dole:
 #   HOOK_SECRET – kód z appky: menu → WhatsApp chaty → Kód pre čítačku
@@ -11,9 +16,10 @@
 
 services:
   f18-bridge:
-    build: https://github.com/kartmanko/rozpis.git#main:bridge
+    image: node:20-alpine
     container_name: f18-bridge
     restart: unless-stopped
+    working_dir: /app
     environment:
       BRIDGE_ID: "nas"
       API_BASE: "https://api.kartmanko.cc"
@@ -23,6 +29,17 @@ services:
     volumes:
       # Prihlásenie do WhatsAppu. Musí prežiť reštart, inak sa páruje odznova.
       - f18-auth:/data
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache git
+        rm -rf /app/* /tmp/r
+        git clone --depth 1 https://github.com/kartmanko/rozpis /tmp/r
+        cp -a /tmp/r/bridge/. /app/
+        npm install --omit=dev --no-audit --no-fund
+        exec node index.js
 
 volumes:
   f18-auth:

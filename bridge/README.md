@@ -67,12 +67,15 @@ Cena: shared-cpu-1x s 256 MB a 1 GB diskom vychádza asi **2 € mesačne**.
 
 Naska nepotrebuje verejnú IP ani presmerovanie portov — čítačka sa pripája iba von.
 
-**Bez terminálu, cez Docker UI na naske** (Synology → Container Manager,
-QNAP → Container Station): vytvor nový projekt a vlož doň obsah súboru
-`nas-compose.yml`. Ten si zdrojáky stiahne z GitHubu sám, takže sa nič nemusí
-kopírovať na disk. Pred spustením vymeň v ňom dve hodnoty — `HOOK_SECRET`
-(kód z appky) a `PAIR_NUMBER` (číslo eSIM). Párovací kód sa potom objaví
-v logoch kontajnera.
+**Bez terminálu, cez Docker UI na naske** (na UGREEN/UGOS Pro appka *Docker* →
+Project): vytvor nový projekt a vlož doň obsah súboru `nas-compose.yml`. Ten si
+zdrojáky stiahne z GitHubu sám pri štarte, takže sa nič nemusí kopírovať na disk.
+Pred spustením vymeň v ňom dve hodnoty — `HOOK_SECRET` (kód z appky) a
+`PAIR_NUMBER` (číslo eSIM). Párovací kód sa potom objaví v logoch kontajnera.
+
+Pozor: `nas-compose.yml` zámerne nič nezostavuje (`build:`). Docker v UGOS Pro
+taký projekt síce vytvorí, ale spustiť ho nedokáže a v logoch to skončí ako
+*Project launch failed*. Preto sa berie hotový `node:20-alpine`.
 
 **Z terminálu**, keď máš repozitár stiahnutý:
 
