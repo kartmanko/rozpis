@@ -28,7 +28,19 @@ export const SK_DAYS = ["Ne", "Po", "Ut", "St", "Št", "Pi", "So"];
 export const SK_DAYS_FULL = ["Nedeľa", "Pondelok", "Utorok", "Streda", "Štvrtok", "Piatok", "Sobota"];
 export const SK_MONTHS = ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"];
 
-export const REFRESH_INTERVAL_MS = 2 * 60 * 1000; // 2 minúty, viď brief
+/* Ako často si appka sama vypýta zo servera čerstvý rozpis.
+
+   Boli to 2 minúty, čo pri každom otvorenom klientovi znamenalo ~2160 čítaní
+   z Cloudflare KV denne — a KV má denný strop 100 000 čítaní pre celú appku.
+   Pätnásť minút je pre rozpis, ktorý sa mení párkrát za deň, dosť; kto chce
+   vidieť zmenu hneď, klikne na "Obnoviť". Navyše sa neobnovuje vôbec, kým je
+   karta v pozadí (viď App.jsx) — obnoví sa hneď po návrate k nej. */
+export const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
+/* Po návrate ku karte sa obnovuje len vtedy, keď sa dlhšie neobnovovalo —
+   nech preklikávanie medzi kartami nerobí zo servera bubon. */
+export const REFRESH_PO_NAVRATE_MS = 60 * 1000;
+
 export const ADMIN_STORAGE_KEY = "rozpis_admin_pw";
 
 // Téma appky: "light" | "dark" | "system" (predvolené). Ukladá sa lokálne v prehliadači.

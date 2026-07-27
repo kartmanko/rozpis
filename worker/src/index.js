@@ -44,6 +44,7 @@ import {
   readUsers,
 } from "./auth.js";
 import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
+import { sKesou, kesovane, prepisKes } from "./kes.js";
 
 const STATE_KEY = "state_v1";
 
@@ -81,13 +82,46 @@ const MAX_PENDING_DISPO = 60;
    Tá druhá poistka je tam schválne: KV je len "časom konzistentné", takže keď obidva
    bridge doručia správu v tej istej sekunde, pečiatku ešte nemusia vidieť. */
 const HOOKMSG_TTL = 14 * 24 * 60 * 60;
-const BRIDGE_TTL = 20 * 60; // po 20 minútach ticha bridge zmizne zo zoznamu živých
+const BRIDGE_TTL = 30 * 60; // po 30 minútach ticha bridge zmizne zo zoznamu živých
 const BRIDGE_KEY = (id) => "bridge:" + String(id || "").slice(0, 40);
+
+/* Ako často sa smie zapísať čítačka, na ktorej sa NIČ nezmenilo.
+
+   Toto bol najväčší žrút KV v celej appke. Ohlásenie „žijem, nič nové" sa
+   zapisovalo bezpodmienečne: dve čítačky každú minútu = 2880 zápisov denne pri
+   dennom strope 1000. A kým čítačka nebola prepojená, ohlasovala sa každých
+   20 sekúnd, čo je ďalších 8640 zápisov denne. Presne na tomto KV vrátilo 429
+   a appka prestala ukladať.
+
+   Teraz sa zapisuje len vtedy, keď sa údaj naozaj zmenil (nové QR, iný stav,
+   iná chyba) — a keď sa nemení, nanajvýš raz za tento čas, aby kľúč nevypršal
+   a čítačka neskočila do červena.
+
+   Dôsledok: dve pokojne bežiace čítačky stoja ~288 zápisov denne namiesto
+   2880. Čo to stojí: keď čítačka spadne, appka to ukáže do ~18 minút (viď
+   ZIVY_LIMIT_MS v ChatyPanel.jsx), nie do piatich. Pri párovaní to nevadí —
+   vtedy sa QR mení pri každom ohlásení, takže sa aj zapisuje a panel je živý.
+
+   Musí to byť výrazne menej než BRIDGE_TTL, inak by kľúč medzitým vypršal. */
+const BRIDGE_ZAPIS_NAJVIAC_MS = 10 * 60 * 1000;
 
 async function bridgePing(env, bridgeId, info) {
   if (!bridgeId) return;
+  const kluc = BRIDGE_KEY(bridgeId);
+
+  // čítanie je proti zápisu lacné (strop 100 000 vs 1000 za deň), tak sa radšej
+  // pozrieme, čo tam je, než by sme naslepo prepísali to isté
+  let stary = null;
+  try { stary = await env.ROZPIS_KV.get(kluc, "json"); } catch { stary = null; }
+  if (stary && typeof stary === "object") {
+    const kluce = Object.keys(info);
+    const rovnake = kluce.every((k) => stary[k] === info[k]);
+    const odvtedy = Date.now() - Date.parse(stary.poslednyKrat || "");
+    if (rovnake && Number.isFinite(odvtedy) && odvtedy >= 0 && odvtedy < BRIDGE_ZAPIS_NAJVIAC_MS) return;
+  }
+
   await env.ROZPIS_KV.put(
-    BRIDGE_KEY(bridgeId),
+    kluc,
     JSON.stringify({ id: bridgeId, ...info, poslednyKrat: new Date().toISOString() }),
     { expirationTtl: BRIDGE_TTL },
   );
@@ -143,13 +177,20 @@ function novyKod() {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+/* Kód pre čítačku sa mení raz za uhorský rok, ale číta sa pri každom ohlásení.
+   V rámci jednej požiadavky teda stačí raz. */
+function precitajBridgeToken(env) {
+  return kesovane(env, BRIDGE_TOKEN_KEY, () => env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY));
+}
+
 async function bridgeToken(env, vyrobNovy = false) {
   if (!vyrobNovy) {
-    const ulozeny = await env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY);
+    const ulozeny = await precitajBridgeToken(env);
     if (ulozeny) return ulozeny;
   }
   const kod = novyKod();
   await env.ROZPIS_KV.put(BRIDGE_TOKEN_KEY, kod);
+  prepisKes(env, BRIDGE_TOKEN_KEY, kod);
   return kod;
 }
 
@@ -166,12 +207,15 @@ async function checkHookSecret(request, env) {
   const s = request.headers.get("X-Hook-Secret") || "";
   if (!s) return false;
   if (env.HOOK_SECRET && rovnakeTajomstvo(s, env.HOOK_SECRET)) return true;
-  const ulozeny = await env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY);
+  const ulozeny = await precitajBridgeToken(env);
   return !!ulozeny && rovnakeTajomstvo(s, ulozeny);
 }
 
+/* Rozpis sa v rámci jednej požiadavky načíta z KV najviac raz (viď kes.js).
+   Kešuje sa surový text, nie hotový objekt — aby si dvaja volajúci nemohli
+   nechtiac prepísať jeden druhému stav pod rukami. */
 async function readState(env) {
-  const raw = await env.ROZPIS_KV.get(STATE_KEY);
+  const raw = await kesovane(env, STATE_KEY, () => env.ROZPIS_KV.get(STATE_KEY));
   if (!raw) return { ...EMPTY_STATE };
   try {
     const parsed = JSON.parse(raw);
@@ -183,7 +227,9 @@ async function readState(env) {
 }
 
 async function writeState(env, state) {
-  await env.ROZPIS_KV.put(STATE_KEY, JSON.stringify(state));
+  const text = JSON.stringify(state);
+  await env.ROZPIS_KV.put(STATE_KEY, text);
+  prepisKes(env, STATE_KEY, text); // čítanie nižšie v tej istej požiadavke už vidí nový stav
 }
 
 async function handleGetData(request, env) {
@@ -618,7 +664,7 @@ async function handlePostHook(request, env) {
   return json({ queued: true, id: entry.id, version: next.version }, 200, env);
 }
 
-/* Bridge sa raz za minútu ohlási, že žije, a pošle zoznam skupín, ktoré vidí.
+/* Bridge sa raz za päť minút ohlási, že žije, a pošle zoznam skupín, ktoré vidí.
    Nové skupiny sa zapíšu ako VYPNUTÉ — admin si v appke odklikne, ktoré sa majú
    čítať. Kým ich nezapne, appka z nich neprečíta ani písmeno. */
 async function handleBridgePing(request, env) {
@@ -653,10 +699,12 @@ async function handleBridgePing(request, env) {
     chyba: String(body.chyba || "").slice(0, 200),
   });
 
-  // doplň novoobjavené skupiny do zoznamu (vypnuté), názvy existujúcich zaktualizuj
+  /* Doplň novoobjavené skupiny do zoznamu (vypnuté), názvy existujúcich zaktualizuj.
+     Stav si načítame RAZ a ďalej s ním pracujeme — predtým sa tu čítal dvakrát
+     za sebou, čo bolo pri ohlásení každú minútu zbytočné míňanie KV. */
   const skupiny = Array.isArray(body.skupiny) ? body.skupiny.slice(0, 200) : [];
+  let state = await readState(env);
   if (skupiny.length) {
-    const state = await readState(env);
     const chaty = { ...(state.chaty || {}) };
     let zmena = false;
     for (const s of skupiny) {
@@ -671,10 +719,12 @@ async function handleBridgePing(request, env) {
         zmena = true;
       }
     }
-    if (zmena) await writeState(env, { ...state, chaty, version: state.version + 1 });
+    if (zmena) {
+      state = { ...state, chaty, version: state.version + 1 };
+      await writeState(env, state);
+    }
   }
 
-  const state = await readState(env);
   // bridge si vypýta, ktoré chaty má vôbec posielať — nech zvyšok ani neopúšťa jeho stroj
   const povolene = Object.values(state.chaty || {}).filter((c) => c.povoleny).map((c) => c.id);
   return json({ ok: true, povoleneChaty: povolene }, 200, env);
@@ -1127,6 +1177,10 @@ async function upozorniNaDispo(env, navrh) {
 
 export default {
   async fetch(request, env, ctx) {
+    /* Každá požiadavka dostane vlastnú krátkodobú pamäť na KV (viď kes.js),
+       nech sa ten istý kľúč nečíta dva- a trikrát za sebou. Naprieč
+       požiadavkami sa nekešuje nič. */
+    env = sKesou(env);
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {

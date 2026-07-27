@@ -139,12 +139,21 @@ appka funguje aj s jednou čítačkou, iba v paneli *WhatsApp chaty* svieti,
 
 ## Ktoré skupiny sa čítajú
 
-Žiadne, kým ich niekto nezapne. Čítačka sa každú minútu ohlási serveru a pošle
-zoznam skupín, ktoré vidí. Tie sa v appke objavia v paneli **WhatsApp chaty**
-ako vypnuté. Až keď ich tam vedúci alebo hlavný admin zapne, začnú sa čítať —
-text z nezapnutej skupiny neopustí ani stroj, na ktorom čítačka beží.
+Žiadne, kým ich niekto nezapne. Čítačka sa každých päť minút ohlási serveru a
+pošle zoznam skupín, ktoré vidí. Tie sa v appke objavia v paneli **WhatsApp
+chaty** ako vypnuté. Až keď ich tam vedúci alebo hlavný admin zapne, začnú sa
+čítať — text z nezapnutej skupiny neopustí ani stroj, na ktorom čítačka beží.
+Novo zapnutá skupina sa teda rozbehne do piatich minút.
+
+Prečo päť a nie jedna minúta: každé ohlásenie je zápis do Cloudflare KV a ten
+má denný strop 1000 zápisov. Dve čítačky každú minútu = 2880 zápisov denne,
+čiže appka prestala ukladať skôr, než sa vôbec začalo pracovať. Kým je čítačka
+neprepojená, ohlasuje sa naďalej každých 20 sekúnd — vtedy sa QR naozaj mení
+a server zápis aj tak spraví len pri zmene.
 
 ## Ako spoznáš, že to beží
 
 V appke, menu → **WhatsApp chaty**. Hore je zoznam čítačiek so zelenou alebo
-červenou bodkou. Čítačka, ktorá sa neozvala päť minút, je červená.
+červenou bodkou. Čítačka, ktorá sa neozvala osemnásť minút, je červená (ohlasuje
+sa každých päť, takže dve zmeškané ohlásenia ju ešte nezhodia do červena —
+server totiž nezapisuje pri každom ohlásení, ale najviac raz za desať minút).

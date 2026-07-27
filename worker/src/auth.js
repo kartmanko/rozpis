@@ -16,6 +16,8 @@
  * niekto videl obsah KV, prihlásiť sa s ním nedá.
  */
 
+import { kesovane, prepisKes } from "./kes.js";
+
 /* ---------- role ---------- */
 
 export const ROLE_KEYS = ["admin", "kamera_lead", "rezia_lead", "produkcny", "stab", "viewer"];
@@ -109,8 +111,11 @@ export function clearCookieHeader(env) {
 
 /* ---------- používatelia ---------- */
 
+/* Zoznam ľudí sa v jednej požiadavke čítal aj dvakrát — raz pri overení
+   prihlásenia (getSessionUser) a hneď potom v samotnom endpointe. Kešuje sa
+   surový text a iba na tú jednu požiadavku (viď kes.js). */
 export async function readUsers(env) {
-  const raw = await env.ROZPIS_KV.get(USERS_KEY);
+  const raw = await kesovane(env, USERS_KEY, () => env.ROZPIS_KV.get(USERS_KEY));
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -121,7 +126,9 @@ export async function readUsers(env) {
 }
 
 export async function writeUsers(env, users) {
-  await env.ROZPIS_KV.put(USERS_KEY, JSON.stringify(users));
+  const text = JSON.stringify(users);
+  await env.ROZPIS_KV.put(USERS_KEY, text);
+  prepisKes(env, USERS_KEY, text);
 }
 
 function sanitizeUser(u) {

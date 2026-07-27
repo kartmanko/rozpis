@@ -360,9 +360,19 @@ async function spusti() {
       prihlasovanie.chyba = "";
       log.info("pripojené k WhatsAppu");
       ohlasSa(sock, "beží");
-      // raz za minútu: "žijem" + aktuálny zoznam skupín + čerstvý zoznam zapnutých chatov
+      /* Raz za päť minút: "žijem" + aktuálny zoznam skupín + čerstvý zoznam
+         zapnutých chatov.
+
+         Prečo nie každú minútu, ako predtým: každé ohlásenie znamená zápis do
+         Cloudflare KV a to má denný strop 1000 zápisov. Dve čítačky každú
+         minútu = 2880 zápisov denne, čiže limit sa vyčerpal a appka prestala
+         ukladať. Päť minút bohato stačí — kým sa čítačka páruje, ohlasuje sa
+         aj tak často (každých 20 s), lebo vtedy sa QR naozaj mení.
+
+         Vedľajší účinok: novo zapnutá skupina sa začne čítať do piatich minút,
+         nie do jednej. */
       stopCasovac();
-      casovac = setInterval(() => ohlasSa(sock, "beží"), 60_000);
+      casovac = setInterval(() => ohlasSa(sock, "beží"), 5 * 60_000);
     }
 
     if (connection === "close") {

@@ -18,8 +18,18 @@ function odvtedy(iso) {
   return `pred ${Math.round(s / 86400)} dňami`;
 }
 
-// bridge, ktorý sa neozval 5 minút, považujeme za spadnutý (hlási sa každú minútu)
-const ZIVY_LIMIT_MS = 5 * 60 * 1000;
+/* Čítačku, ktorá sa neozvala dlhšie než toto, považujeme za spadnutú.
+
+   Musí to byť viac, než ako často sa čítačka naozaj ZAPÍŠE. Ohlasuje sa síce
+   každých päť minút, ale server nemenné ohlásenie zapíše nanajvýš raz za
+   desať minút — inak by denný strop zápisov do Cloudflare KV zase praskol
+   (dve čítačky každú minútu = 2880 zápisov denne pri strope 1000).
+
+   Osemnásť minút teda pokrýva desaťminútovú medzeru aj jedno zmeškané
+   ohlásenie a zdravá čítačka pri ňom nezačervenie. Cena za to je, že spadnutú
+   čítačku vidno až do ~18 minút namiesto piatich. Pri párovaní to nevadí:
+   vtedy sa QR mení stále, takže sa aj zapisuje a údaje sú živé. */
+const ZIVY_LIMIT_MS = 18 * 60 * 1000;
 
 function StavBridgeov({ bridges, chyba }) {
   if (chyba) return <div className="text-[11px] text-f-accent mb-3">Stav čítačiek sa nepodarilo načítať: {chyba}</div>;
@@ -326,15 +336,22 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onReload, onClos
   const [bridges, setBridges] = useState([]);
   const [chyba, setChyba] = useState("");
 
-  /* Kým sa niektorá čítačka páruje, pýtame sa servera každých päť sekúnd —
-     QR sa vo WhatsAppe točí a párovací kód platí necelé tri minúty, takže na
-     polminútovom obnovovaní by sa ukazovalo niečo, čo už neplatí. Keď je všetko
-     prepojené, stačí raz za pol minúty. */
+  /* Kým sa niektorá čítačka páruje, pýtame sa servera častejšie — QR sa vo
+     WhatsAppe točí (asi raz za minútu) a párovací kód platí necelé tri minúty,
+     takže na dvojminútovom obnovovaní by sa ukazovalo niečo, čo už neplatí.
+     Keď je všetko prepojené, netreba sa pýtať skoro vôbec.
+
+     Bolo to 5 s / 30 s. Päť sekúnd znamenalo ~720 volaní za hodinu a každé z
+     nich niekoľko čítaní z Cloudflare KV, ktoré má denný strop — otvorený panel
+     cez noc dokázal vyžrať limit sám. Pätnásť sekúnd je na sledovanie QR stále
+     dosť. */
   const caka = bridges.some((b) => b.stav !== "beží");
 
   useEffect(() => {
     let zive = true;
     const nacitaj = async () => {
+      // v pozadí sa nepýtame nič — nikto sa na to aj tak nepozerá
+      if (document.visibilityState === "hidden") return;
       try {
         const d = await fetchBridges();
         if (zive) { setBridges(d.bridges || []); setChyba(""); }
@@ -343,8 +360,14 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onReload, onClos
       }
     };
     nacitaj();
-    const t = setInterval(nacitaj, caka ? 5000 : 30000);
-    return () => { zive = false; clearInterval(t); };
+    const t = setInterval(nacitaj, caka ? 15000 : 120000);
+    const priNavrate = () => { if (document.visibilityState === "visible") nacitaj(); };
+    document.addEventListener("visibilitychange", priNavrate);
+    return () => {
+      zive = false;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", priNavrate);
+    };
   }, [caka]);
 
   const zoznam = Object.values(chaty || {}).sort((a, b) => {

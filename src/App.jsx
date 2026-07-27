@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
-import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
+import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, REFRESH_PO_NAVRATE_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
 import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam } from "./api";
 import { capsOf, sectionsOf, cellAccess, DEMO_USER } from "./permissions";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
@@ -295,12 +295,37 @@ export default function App() {
     });
   };
 
-  /* --- auto-refresh (kto needituje, alebo nemá rozpracované zmeny) --- */
+  /* --- auto-refresh (kto needituje, alebo nemá rozpracované zmeny) ---
+
+     Šetríme čítania z Cloudflare KV, ktoré má denný strop pre celú appku:
+     - obnovuje sa raz za REFRESH_INTERVAL_MS (15 min), nie každé 2 minúty,
+     - kým je karta v pozadí, neobnovuje sa vôbec (telefón v zadnom vrecku
+       nepotrebuje čerstvý rozpis),
+     - po návrate ku karte sa obnoví hneď, ak sú dáta staršie než minúta —
+       takže človek vidí aktuálny stav v okamihu, keď sa naň pozrie.
+     Kto chce dáta okamžite, má v hlavičke "Obnoviť". */
+  const poslednyRefresh = useRef(Date.now());
   useEffect(() => {
+    const mozeme = () => getApiBase() && me && (!canEditCells || !dirty);
+    const obnov = () => {
+      if (!mozeme()) return;
+      poslednyRefresh.current = Date.now();
+      load();
+    };
+
     const t = setInterval(() => {
-      if (getApiBase() && me && (!canEditCells || !dirty)) load();
+      if (document.visibilityState === "hidden") return;
+      obnov();
     }, REFRESH_INTERVAL_MS);
-    return () => clearInterval(t);
+
+    const priNavrate = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - poslednyRefresh.current < REFRESH_PO_NAVRATE_MS) return;
+      obnov();
+    };
+    document.addEventListener("visibilitychange", priNavrate);
+
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", priNavrate); };
   }, [canEditCells, dirty, load, me]);
 
   /* --- debounované ukladanie — v demo režime (bez Workera) sa iba nastaví "uložené" lokálne --- */
