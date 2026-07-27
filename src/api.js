@@ -119,6 +119,13 @@ export async function noveBridgeToken() {
   return request("/bridge/token", { method: "POST" });
 }
 
+/* Vyhodí zo zoznamu skupiny, ktoré nie sú zapnuté. Treba to vtedy, keď sa
+   čítačka preloží na iné WhatsApp číslo — mená skupín z toho starého účtu by
+   inak v zozname ostali visieť. Zapnutých sa to nedotkne. */
+export async function zabudniChaty() {
+  return jsonPost("/chaty/zabudni", {});
+}
+
 export async function parseScreenshot({ base64, mediaType, month }) {
   return jsonPost("/parse", { image: base64, mediaType, month });
 }

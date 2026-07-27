@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchBridges, fetchBridgeToken, noveBridgeToken } from "../api";
+import { fetchBridges, fetchBridgeToken, noveBridgeToken, zabudniChaty } from "../api";
 
 /* Sledované WhatsApp chaty a stav čítačiek (Fáza 3).
 
@@ -165,6 +165,71 @@ function Parovanie({ bridges, canEdit }) {
   );
 }
 
+/* Prečistenie zoznamu skupín.
+
+   Zoznam sa plní z toho, čo vidí prihlásený WhatsApp účet. Keď sa čítačka
+   preloží na iné číslo (typicky z osobného na eSIM), mená skupín z toho
+   starého účtu tu ostanú visieť, hoci k nim už nikto nemá prístup. Toto ich
+   vyhodí a čítačky do minúty nahlásia, čo vidia teraz.
+
+   Zapnutých skupín sa to nedotkne — pri nich niekto vedome nastavil, čo sa
+   v nich hľadá, a bola by škoda o to prísť omylom. */
+function PrecistiZoznam({ onHotovo }) {
+  const [pracuje, setPracuje] = useState(false);
+  const [hlaska, setHlaska] = useState("");
+  const [pytamSa, setPytamSa] = useState(false);
+
+  const precisti = async () => {
+    setPracuje(true);
+    setHlaska("");
+    try {
+      const d = await zabudniChaty();
+      setPytamSa(false);
+      setHlaska(
+        d.zmazane
+          ? `Vyhodených ${d.zmazane}. Čítačky nahlásia, čo vidia teraz, do minúty.`
+          : "Nebolo čo vyhodiť — všetky skupiny v zozname sú zapnuté.",
+      );
+      if (onHotovo) onHotovo();
+    } catch (e) {
+      setHlaska("Nepodarilo sa: " + e.message);
+    }
+    setPracuje(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {hlaska && <span className="text-[11px] text-f-faint2">{hlaska}</span>}
+      {pytamSa ? (
+        <>
+          <span className="text-[11px] text-f-faint2">Vyhodiť všetky nezapnuté?</span>
+          <button
+            onClick={precisti}
+            disabled={pracuje}
+            className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-f-accent text-f-ink disabled:opacity-50"
+          >
+            {pracuje ? "Čistím…" : "Áno, vyhodiť"}
+          </button>
+          <button
+            onClick={() => setPytamSa(false)}
+            className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text"
+          >
+            Späť
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => { setHlaska(""); setPytamSa(true); }}
+          title="Vyhodí zo zoznamu skupiny, ktoré nie sú zapnuté — napríklad tie, čo tu ostali po inom WhatsApp čísle."
+          className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text"
+        >
+          Prečistiť zoznam
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* Kód pre čítačku. Je to tajomstvo, tak sa nezobrazuje samo od seba — treba naň
    kliknúť. Zámerne je tu aj tlačidlo na výmenu: keby sa kód niekam zatúlal,
    nech sa dá vymeniť z appky a nie cez wrangler alebo dashboard. */
@@ -257,7 +322,7 @@ function KodCitacky({ canEdit }) {
   );
 }
 
-export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
+export default function ChatyPanel({ chaty, canEdit, onSetChat, onReload, onClose }) {
   const [bridges, setBridges] = useState([]);
   const [chyba, setChyba] = useState("");
 
@@ -301,7 +366,11 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
 
       <KodCitacky canEdit={canEdit} />
 
-      <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-faint mb-1.5">Skupiny</div>
+      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+        <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-faint">Skupiny</div>
+        <div className="grow" />
+        {canEdit && !!zoznam.length && <PrecistiZoznam onHotovo={onReload} />}
+      </div>
       <div className="text-[11px] text-f-faint2 mb-2 leading-relaxed">
         Zapni iba tie skupiny, z ktorých sa má čítať. Z vypnutých sa nečíta nič.
         Pri zapnutej skupine sa dá vybrať, čo sa v nej hľadá:

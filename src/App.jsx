@@ -1073,7 +1073,7 @@ export default function App() {
         />
       )}
       {panel === "chaty" && caps.pending && (
-        <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onClose={() => setPanel(null)} />
+        <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />
       )}
       {panel === "hook" && caps.pending && (
         <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} onResolve={resolveHook} onClose={() => setPanel(null)} />

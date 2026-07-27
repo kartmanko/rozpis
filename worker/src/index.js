@@ -712,6 +712,38 @@ async function handleBridgeToken(request, env) {
   return json({ kod, aj_secret: !!env.HOOK_SECRET, novy }, 200, env);
 }
 
+/* POST /chaty/zabudni — vyhodí zo zoznamu skupiny, ktoré nie sú zapnuté.
+
+   Načo je to: zoznam skupín sa plní z toho, čo vidí prihlásený WhatsApp účet.
+   Keď sa čítačka preloží na iné číslo (napríklad z osobného na eSIM), mená
+   skupín z toho starého účtu v zozname ostanú visieť, hoci k nim už nikto
+   nemá prístup. Toto ich zmaže; čítačky do minúty nahlásia, čo vidia teraz.
+
+   Zapnutých skupín sa to zámerne nedotkne — tie niekto vedome zapol a mohli
+   by tým prísť o nastavenie (dostupnosť/reporty). Keď treba vyhodiť aj takú,
+   najprv sa vypne a potom sa zoznam zabudne. */
+async function handleChatyZabudni(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  if (!roleCaps(user.role).pending) {
+    return json({ error: "Zoznam skupín smie prečistiť iba vedúci alebo hlavný admin." }, 403, env);
+  }
+
+  const state = await readState(env);
+  const vsetky = Object.values(state.chaty || {});
+  const ostavaju = {};
+  for (const c of vsetky) if (c?.povoleny) ostavaju[c.id] = c;
+  const zmazane = vsetky.length - Object.keys(ostavaju).length;
+  if (!zmazane) return json({ ok: true, zmazane: 0 }, 200, env);
+
+  const log = [
+    { t: new Date().toISOString(), text: `Zoznam WhatsApp skupín prečistený (${zmazane}) — ${user.email}` },
+    ...(state.log || []),
+  ].slice(0, 400);
+  await writeState(env, { ...state, chaty: ostavaju, log, version: state.version + 1 });
+  return json({ ok: true, zmazane }, 200, env);
+}
+
 /* ========== Fáza 5: dispozícia mailom ==========
 
    Dispozícia chodí mailom na vyhradenú adresu (Cloudflare Email Routing ju
@@ -1142,6 +1174,9 @@ export default {
     }
     if (url.pathname === "/bridge/token" && (request.method === "GET" || request.method === "POST")) {
       return handleBridgeToken(request, env);
+    }
+    if (url.pathname === "/chaty/zabudni" && request.method === "POST") {
+      return handleChatyZabudni(request, env);
     }
     if (url.pathname === "/hook" && request.method === "POST") {
       return handlePostHook(request, env);
