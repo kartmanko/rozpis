@@ -67,6 +67,15 @@ Cena: shared-cpu-1x s 256 MB a 1 GB diskom vychádza asi **2 € mesačne**.
 
 Naska nepotrebuje verejnú IP ani presmerovanie portov — čítačka sa pripája iba von.
 
+**Bez terminálu, cez Docker UI na naske** (Synology → Container Manager,
+QNAP → Container Station): vytvor nový projekt a vlož doň obsah súboru
+`nas-compose.yml`. Ten si zdrojáky stiahne z GitHubu sám, takže sa nič nemusí
+kopírovať na disk. Pred spustením vymeň v ňom dve hodnoty — `HOOK_SECRET`
+(kód z appky) a `PAIR_NUMBER` (číslo eSIM). Párovací kód sa potom objaví
+v logoch kontajnera.
+
+**Z terminálu**, keď máš repozitár stiahnutý:
+
 ```bash
 cd bridge
 printf 'HOOK_SECRET=...\nPAIR_NUMBER=421901234567\n' > .env

@@ -1,0 +1,28 @@
+# Čítačka WhatsAppu na naske — verzia na skopírovanie do Docker UI.
+#
+# Načo je zvlášť: docker-compose.yml vedľa počíta s tým, že máš na disku
+# stiahnutý repozitár (build: .). Tento súbor si zdrojáky stiahne sám z GitHubu,
+# takže sa dá v Container Manageri (Synology) alebo Container Station (QNAP)
+# jednoducho vložiť ako nový projekt a nič sa nikam nekopíruje.
+#
+# Vymeniť treba dve hodnoty dole:
+#   HOOK_SECRET – kód z appky: menu → WhatsApp chaty → Kód pre čítačku
+#   PAIR_NUMBER – číslo eSIM bez plusu a bez medzier, napr. 421901234567
+
+services:
+  f18-bridge:
+    build: https://github.com/kartmanko/rozpis.git#main:bridge
+    container_name: f18-bridge
+    restart: unless-stopped
+    environment:
+      BRIDGE_ID: "nas"
+      API_BASE: "https://api.kartmanko.cc"
+      AUTH_DIR: "/data/auth"
+      HOOK_SECRET: "SEM_KOD_Z_APPKY"
+      PAIR_NUMBER: "SEM_CISLO_ESIM"
+    volumes:
+      # Prihlásenie do WhatsAppu. Musí prežiť reštart, inak sa páruje odznova.
+      - f18-auth:/data
+
+volumes:
+  f18-auth:
