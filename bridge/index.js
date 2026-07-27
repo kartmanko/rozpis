@@ -18,6 +18,10 @@
  *   HOOK_SECRET – to isté tajomstvo, aké má Worker (Cloudflare secret)
  *   BRIDGE_ID   – "fly" alebo "nas"; iba na rozlíšenie v appke
  *   AUTH_DIR    – priečinok na trvalom disku, kde sa drží prihlásenie
+ *   PAIR_NUMBER – nepovinné: číslo eSIM v tvare 421901234567 (bez + a bez medzier).
+ *                 Keď je vyplnené, čítačka si namiesto QR kódu vypýta osemznakový
+ *                 párovací kód, ktorý sa v telefóne iba prepíše. Hodí sa, keď je
+ *                 eSIM v tom istom telefóne, ktorým by sa QR skenoval.
  */
 
 import makeWASocket, {
@@ -32,6 +36,9 @@ const API_BASE = (process.env.API_BASE || "").replace(/\/$/, "");
 const HOOK_SECRET = process.env.HOOK_SECRET || "";
 const BRIDGE_ID = process.env.BRIDGE_ID || "bridge";
 const AUTH_DIR = process.env.AUTH_DIR || "./auth";
+/* Číslo eSIM pre párovanie kódom. Necháme z neho iba číslice — ľudia to píšu
+   raz s plusom, raz s medzerami a WhatsApp by to inak odmietol. */
+const PAIR_NUMBER = (process.env.PAIR_NUMBER || "").replace(/\D/g, "");
 const VERZIA = "1.0.0";
 
 if (!API_BASE || !HOOK_SECRET) {
@@ -158,6 +165,27 @@ async function spusti() {
 
   sock.ev.on("creds.update", saveCreds);
 
+  /* Párovanie kódom namiesto QR. Keď eSIM sedí v tom istom telefóne, ktorým by sa
+     QR skenoval, nie je čím skenovať — tak si vypýtame osemznakový kód a ten sa
+     v telefóne iba prepíše (WhatsApp → Prepojené zariadenia → Prepojiť zariadenie
+     → Prepojiť pomocou telefónneho čísla). Pýtame ho iba raz, pri prvom prihlásení;
+     keď už je prihlásenie na disku, tento blok sa preskočí. Krátke počkanie je
+     naschvál — Baileys musí najprv nadviazať spojenie, inak kód nevydá. */
+  if (PAIR_NUMBER && !sock.authState?.creds?.registered) {
+    setTimeout(async () => {
+      try {
+        const kod = await sock.requestPairingCode(PAIR_NUMBER);
+        const pekne = String(kod).match(/.{1,4}/g).join("-");
+        console.log("\n=== PÁROVACÍ KÓD: " + pekne + " ===");
+        console.log("Prepíš ho v telefóne: WhatsApp → Nastavenia → Prepojené zariadenia");
+        console.log("→ Prepojiť zariadenie → Prepojiť pomocou telefónneho čísla.");
+        console.log("Kód platí pár minút; keď vyprší, čítačka vypíše nový.\n");
+      } catch (e) {
+        log.error({ e: e.message }, "párovací kód sa nepodarilo vypýtať — použi QR nižšie");
+      }
+    }, 4000);
+  }
+
   // pri opätovnom pripájaní musí starý časovač zaniknúť, inak by sa hromadili
   let casovac = null;
   const stopCasovac = () => { if (casovac) { clearInterval(casovac); casovac = null; } };
@@ -165,7 +193,9 @@ async function spusti() {
   sock.ev.on("connection.update", (u) => {
     const { connection, lastDisconnect, qr } = u;
 
-    if (qr) {
+    /* QR kreslíme len vtedy, keď sa nepáruje kódom — inak by v logoch skákali
+       dve rôzne inštrukcie naraz a človek by nevedel, čoho sa držať. */
+    if (qr && !PAIR_NUMBER) {
       console.log("\n=== Naskenuj tento QR kód vo WhatsApp → Prepojené zariadenia ===\n");
       qrcode.generate(qr, { small: true });
     }
@@ -183,7 +213,14 @@ async function spusti() {
       stopCasovac();
       const kod = lastDisconnect?.error?.output?.statusCode;
       const odhlasene = kod === DisconnectReason.loggedOut;
-      log.warn({ kod }, odhlasene ? "odhlásené — treba znova naskenovať QR" : "spojenie spadlo, skúšam znova");
+      log.warn(
+        { kod },
+        odhlasene
+          ? PAIR_NUMBER
+            ? "odhlásené — treba znova prepojiť párovacím kódom"
+            : "odhlásené — treba znova naskenovať QR"
+          : "spojenie spadlo, skúšam znova",
+      );
       if (!odhlasene) setTimeout(() => spusti().catch((e) => log.error(e)), 5000);
     }
   });

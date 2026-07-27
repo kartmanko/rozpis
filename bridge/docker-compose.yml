@@ -10,5 +10,8 @@ services:
       API_BASE: "https://api.kartmanko.cc"
       AUTH_DIR: "/data/auth"
       HOOK_SECRET: "${HOOK_SECRET}"   # daj do súboru .env vedľa tohto, nie sem
+      # Číslo eSIM (napr. 421901234567) — vtedy sa páruje kódom namiesto QR.
+      # Nechaj prázdne, ak chceš skenovať QR. Tiež patrí do .env, nie sem.
+      PAIR_NUMBER: "${PAIR_NUMBER:-}"
     volumes:
       - ./data:/data

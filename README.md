@@ -182,6 +182,7 @@ keď sa `BUILD_ID` zmení, zahodia starú kešu a obnovia sa.
 - Overiť doménu `kartmanko.cc` v Resende (tlačidlo „Auto configure“) a vrátiť
   `MAIL_FROM` na `FARMA rozpis <farma@kartmanko.cc>` — dovtedy chodia
   prihlasovacie maily len majiteľovi Resend účtu.
-- Nasadiť WhatsApp bridge na Fly.io a raz naskenovať QR.
+- Nasadiť WhatsApp bridge na Fly.io a raz ho prepojiť s eSIM — párovacím kódom,
+  netreba nič skenovať (`PAIR_NUMBER`, pozri `bridge/README.md`).
 - Doladiť UI na mobile.
 - Import existujúcich tabuliek z XLSX/CSV.

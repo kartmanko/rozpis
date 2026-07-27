@@ -24,8 +24,24 @@ obidve odhlásilo a musel by si znova skenovať QR.
 | `HOOK_SECRET` | to isté tajomstvo, aké má Cloudflare Worker |
 | `BRIDGE_ID` | `fly` alebo `nas` — iba na rozlíšenie v appke |
 | `AUTH_DIR` | priečinok na **trvalom** disku, kde sa drží prihlásenie |
+| `PAIR_NUMBER` | nepovinné: číslo eSIM, napr. `421901234567` — pozri nižšie |
 
 `HOOK_SECRET` sa nikdy nepíše do súborov v repozitári.
+
+## Ako sa čítačka prihlási do WhatsAppu
+
+Sú dve cesty a stačí jedna:
+
+- **Párovacím kódom** (jednoduchšie, keď je eSIM v telefóne, ktorý máš v ruke).
+  Nastav `PAIR_NUMBER` na číslo eSIM bez plusu a bez medzier. Čítačka vypíše do
+  logov osemznakový kód a ten v telefóne iba prepíšeš: *WhatsApp → Nastavenia →
+  Prepojené zariadenia → Prepojiť zariadenie → **Prepojiť pomocou telefónneho
+  čísla***. Netreba druhú obrazovku ani nič skenovať.
+- **QR kódom** — keď `PAIR_NUMBER` nenastavíš, čítačka nakreslí do logov QR a ten
+  naskenuješ telefónom. Potrebuješ na to druhú obrazovku.
+
+Prihlásenie sa ukladá na trvalý disk (`AUTH_DIR`), takže sa robí **iba raz** —
+reštart ani nová verzia ho nezhodí.
 
 ## Fly.io (hlavná čítačka)
 
@@ -33,14 +49,10 @@ obidve odhlásilo a musel by si znova skenovať QR.
 cd bridge
 fly launch --no-deploy --copy-config      # appku vytvorí podľa fly.toml
 fly volumes create f18_auth --size 1 --region waw
-fly secrets set HOOK_SECRET=...           # to isté ako v Cloudflare
+fly secrets set HOOK_SECRET=... PAIR_NUMBER=421901234567
 fly deploy
-fly logs                                  # tu sa objaví QR kód
+fly logs                                  # tu sa objaví párovací kód
 ```
-
-QR kód sa vypíše priamo do logov. Naskenuj ho v telefóne: **WhatsApp → Nastavenia →
-Prepojené zariadenia → Prepojiť zariadenie**. Skenuje sa **iba raz** — prihlásenie
-ostane na disku aj po reštarte.
 
 Cena: shared-cpu-1x s 256 MB a 1 GB diskom vychádza asi **2 € mesačne**.
 
@@ -50,12 +62,12 @@ Naska nepotrebuje verejnú IP ani presmerovanie portov — čítačka sa pripáj
 
 ```bash
 cd bridge
-echo "HOOK_SECRET=..." > .env
+printf 'HOOK_SECRET=...\nPAIR_NUMBER=421901234567\n' > .env
 docker compose up -d --build
-docker compose logs -f      # tu sa objaví QR kód
+docker compose logs -f      # tu sa objaví párovací kód
 ```
 
-QR sa skenuje znova (je to druhé zariadenie). Ak naska nebeží, nič sa nedeje —
+Prepája sa znova (je to druhé zariadenie). Ak naska nebeží, nič sa nedeje —
 appka funguje aj s jednou čítačkou, iba v paneli *WhatsApp chaty* svieti,
 že beží len jedna.
 
