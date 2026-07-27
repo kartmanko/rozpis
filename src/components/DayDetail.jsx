@@ -27,8 +27,9 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }
      „Dispo“ potvrdil — nepotvrdené návrhy sa v detaile dňa neukazujú. */
   const denneDispo = (dispo || {})[iso];
 
+  /* Nad hlavičkou appky (z-50), nech detail dňa prekryje celú obrazovku. */
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 no-print" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 no-print" onClick={onClose}>
       <div
         className="bg-f-panel3 border-t-[3px] sm:border-t-[3px] border-f-accent shadow-xl w-full sm:w-[min(92vw,26rem)] sm:rounded-b-xl max-h-[85vh] overflow-auto p-4"
         onClick={(e) => e.stopPropagation()}
