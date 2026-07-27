@@ -44,11 +44,17 @@ function StavBridgeov({ bridges, chyba }) {
           const zivy = b.poslednyKrat && Date.now() - new Date(b.poslednyKrat).getTime() < ZIVY_LIMIT_MS;
           return (
             <div key={b.id} className="flex items-center gap-2 border border-f-border rounded-lg p-2 bg-f-panel2">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${zivy ? "bg-f-a" : "bg-f-r"}`} />
+              {/* zelená = číta, žltá = žije, ale ešte nie je prepojená s WhatsAppom */}
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  !zivy ? "bg-f-r" : b.stav === "beží" ? "bg-f-a" : "bg-f-c"
+                }`}
+              />
               <span className="text-xs font-bold text-f-text">{b.id}</span>
               {b.cislo && <span className="text-[11px] font-mono text-f-muted2">{b.cislo}</span>}
               <span className="ml-auto text-[11px] text-f-faint2">
-                {zivy ? "beží" : "neozvala sa"} · {odvtedy(b.poslednyKrat)}
+                {!zivy ? "neozvala sa" : b.stav === "beží" ? "beží" : b.stav || "beží"} ·{" "}
+                {odvtedy(b.poslednyKrat)}
               </span>
             </div>
           );
@@ -60,6 +66,101 @@ function StavBridgeov({ bridges, chyba }) {
           správy sa nestratia. Nie je povinná.
         </div>
       )}
+    </div>
+  );
+}
+
+/* Prepojenie čítačky s WhatsAppom priamo odtiaľto.
+
+   Načo to je: čítačka sa musí raz prihlásiť do WhatsAppu a WhatsApp na to chce
+   buď osemznakový kód, alebo QR. Oboje si doteraz vypisovala iba do svojich logov —
+   čo znamenalo liezť do Dockeru na naske a čítať log kontajnera. Teraz to isté
+   posiela serveru a je to vidieť tu. QR býva spoľahlivejšie než prepisovanie kódu:
+   túto stránku otvor na počítači a naskenuj ju telefónom, v ktorom je eSIM.
+
+   Vidieť to smie iba admin a vedúci — kto má QR, prepojí si vlastné zariadenie.
+   Server to ostatným ani neposiela. */
+function QrObrazok({ text }) {
+  const [svg, setSvg] = useState("");
+
+  useEffect(() => {
+    let zive = true;
+    if (!text) { setSvg(""); return undefined; }
+    // knižnicu ťaháme až keď je naozaj treba — pri bežnom používaní appky nikdy
+    import("qrcode-generator")
+      .then(({ default: qrcode }) => {
+        if (!zive) return;
+        const q = qrcode(0, "L");
+        q.addData(text);
+        q.make();
+        setSvg(q.createSvgTag({ cellSize: 5, margin: 2 }));
+      })
+      .catch(() => { if (zive) setSvg(""); });
+    return () => { zive = false; };
+  }, [text]);
+
+  if (!svg) return null;
+  return (
+    <div
+      className="bg-white p-2 rounded-md inline-block [&>svg]:block"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+function Parovanie({ bridges, canEdit }) {
+  if (!canEdit) return null;
+
+  // zaujímajú nás iba čítačky, ktoré sa ozvali a ešte nie sú prepojené
+  const caka = bridges.filter(
+    (b) => b.stav !== "beží" && (b.qr || b.kodParovania || b.chyba || b.waVerzia),
+  );
+  if (!caka.length) return null;
+
+  return (
+    <div className="border border-f-accent rounded-lg p-2.5 mb-3 bg-f-panel2">
+      <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-accent mb-1.5">
+        Prepojenie s WhatsAppom
+      </div>
+      {caka.map((b) => (
+        <div key={b.id} className="mb-2 last:mb-0">
+          <div className="text-xs font-bold text-f-text mb-1">
+            Čítačka <span className="font-mono">{b.id}</span> čaká na prepojenie
+          </div>
+
+          {b.kodParovania && (
+            <div className="mb-2">
+              <div className="text-[11px] text-f-faint2 mb-1 leading-relaxed">
+                Prepíš tento kód v telefóne: WhatsApp → Nastavenia → Prepojené zariadenia
+                → Prepojiť zariadenie → <b>Prepojiť pomocou telefónneho čísla</b>.
+              </div>
+              <div className="font-mono text-lg font-extrabold tracking-widest text-f-text select-all">
+                {b.kodParovania}
+              </div>
+              <div className="text-[11px] text-f-faint2">
+                Platí necelé tri minúty. Keď vyprší, o chvíľu sa tu sám objaví nový.
+              </div>
+            </div>
+          )}
+
+          {b.qr && (
+            <div className="mb-2">
+              <div className="text-[11px] text-f-faint2 mb-1 leading-relaxed">
+                Alebo to naskenuj telefónom (WhatsApp → Prepojené zariadenia →
+                Prepojiť zariadenie). Keď kód neberie, QR býva spoľahlivejšie.
+              </div>
+              <QrObrazok text={b.qr} />
+            </div>
+          )}
+
+          {b.chyba && <div className="text-[11px] text-f-accent">{b.chyba}</div>}
+          {b.waVerzia && (
+            <div className="text-[11px] text-f-faint2">
+              verzia WhatsApp Webu: <span className="font-mono">{b.waVerzia}</span>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -160,6 +261,12 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
   const [bridges, setBridges] = useState([]);
   const [chyba, setChyba] = useState("");
 
+  /* Kým sa niektorá čítačka páruje, pýtame sa servera každých päť sekúnd —
+     QR sa vo WhatsAppe točí a párovací kód platí necelé tri minúty, takže na
+     polminútovom obnovovaní by sa ukazovalo niečo, čo už neplatí. Keď je všetko
+     prepojené, stačí raz za pol minúty. */
+  const caka = bridges.some((b) => b.stav !== "beží");
+
   useEffect(() => {
     let zive = true;
     const nacitaj = async () => {
@@ -171,9 +278,9 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
       }
     };
     nacitaj();
-    const t = setInterval(nacitaj, 30000);
+    const t = setInterval(nacitaj, caka ? 5000 : 30000);
     return () => { zive = false; clearInterval(t); };
-  }, []);
+  }, [caka]);
 
   const zoznam = Object.values(chaty || {}).sort((a, b) => {
     if (!!a.povoleny !== !!b.povoleny) return a.povoleny ? -1 : 1;
@@ -189,6 +296,8 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
       </div>
 
       <StavBridgeov bridges={bridges} chyba={chyba} />
+
+      <Parovanie bridges={bridges} canEdit={canEdit} />
 
       <KodCitacky canEdit={canEdit} />
 

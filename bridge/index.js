@@ -109,14 +109,33 @@ async function zoznamSkupin(sock) {
   }
 }
 
+/* Čo práve vieme o prihlasovaní. Posiela sa to serveru, aby to bolo vidieť
+   v appke (menu → WhatsApp chaty) a nemusel sa nikto prehrabávať v logoch
+   kontajnera. Párovací kód aj QR sú prihlasovacie údaje, takže ich server
+   ukáže iba adminovi a vedúcemu — a len dokým nie je prepojené. */
+const prihlasovanie = {
+  waVerzia: "",
+  kodParovania: "",
+  kodDo: "",
+  qr: "",
+  chyba: "",
+};
+
 async function ohlasSa(sock, stav) {
   try {
+    const cakame = stav !== "beží";
     const odpoved = await serverPost("/bridge/ping", {
       bridgeId: BRIDGE_ID,
       stav,
       verzia: VERZIA,
       cislo: sock?.user?.id ? "+" + String(sock.user.id).split("@")[0].split(":")[0] : "",
       skupiny: stav === "beží" ? await zoznamSkupin(sock) : [],
+      waVerzia: prihlasovanie.waVerzia,
+      // po prepojení už párovacie údaje neposielame — nemá ich kde byť treba
+      kodParovania: cakame ? prihlasovanie.kodParovania : "",
+      kodDo: cakame ? prihlasovanie.kodDo : "",
+      qr: cakame ? prihlasovanie.qr : "",
+      chyba: cakame ? prihlasovanie.chyba : "",
     });
     if (Array.isArray(odpoved.povoleneChaty)) {
       povoleneChaty = new Set(odpoved.povoleneChaty);
@@ -204,6 +223,7 @@ async function ktoruVerziu() {
       { verzia: zisteny.version.join(".") },
       "verziu WhatsApp Webu som zistil priamo od WhatsAppu",
     );
+    prihlasovanie.waVerzia = zisteny.version.join(".");
     return zisteny.version;
   }
 
@@ -212,6 +232,7 @@ async function ktoruVerziu() {
     { e: zisteny?.error?.message || "neznáma chyba", verzia: version.join(".") },
     "k WhatsAppu sa nedá dostať po verziu — beriem tú z knižnice; ak párovanie neprejde, vpíš WA_VERSION ručne",
   );
+  prihlasovanie.waVerzia = version.join(".") + " (z knižnice)";
   return version;
 }
 
@@ -246,20 +267,36 @@ async function spusti() {
      keď už je prihlásenie na disku, tento blok sa preskočí. Krátke počkanie je
      naschvál — Baileys musí najprv nadviazať spojenie, inak kód nevydá. */
   let parovanie = null;
-  const stopParovanie = () => { if (parovanie) { clearInterval(parovanie); parovanie = null; } };
+  /* Kým nie je prepojené, ohlasujeme sa serveru častejšie — nech je v appke
+     vidieť, že čítačka žije a na čo čaká. Po prepojení to preberie minútový
+     časovač nižšie. */
+  let cakanie = setInterval(() => ohlasSa(sock, "čaká na prepojenie"), 20_000);
+  const stopParovanie = () => {
+    if (parovanie) { clearInterval(parovanie); parovanie = null; }
+    if (cakanie) { clearInterval(cakanie); cakanie = null; }
+  };
+  if (!sock.authState?.creds?.registered) ohlasSa(sock, "čaká na prepojenie");
 
   async function vypytajKod() {
     if (sock.authState?.creds?.registered) return stopParovanie();
     try {
       const kod = await sock.requestPairingCode(PAIR_NUMBER);
       const pekne = String(kod).match(/.{1,4}/g).join("-");
+      prihlasovanie.kodParovania = pekne;
+      prihlasovanie.kodDo = new Date(Date.now() + 170_000).toISOString();
+      prihlasovanie.chyba = "";
       console.log("\n=== PÁROVACÍ KÓD: " + pekne + " ===");
       console.log("Prepíš ho v telefóne: WhatsApp → Nastavenia → Prepojené zariadenia");
       console.log("→ Prepojiť zariadenie → Prepojiť pomocou telefónneho čísla.");
       console.log("Platí necelé tri minúty. Keď vyprší, o chvíľu sa tu objaví nový —");
-      console.log("nič nereštartuj, iba počkaj a prepíš ten posledný.\n");
+      console.log("nič nereštartuj, iba počkaj a prepíš ten posledný.");
+      console.log("To isté je vidieť aj v appke: menu → WhatsApp chaty.\n");
+      ohlasSa(sock, "čaká na prepojenie");
     } catch (e) {
-      log.error({ e: e.message }, "párovací kód sa nepodarilo vypýtať — použi QR nižšie");
+      prihlasovanie.kodParovania = "";
+      prihlasovanie.chyba = "párovací kód sa nepodarilo vypýtať: " + e.message;
+      log.error({ e: e.message }, "párovací kód sa nepodarilo vypýtať — použi QR");
+      ohlasSa(sock, "čaká na prepojenie");
     }
   }
 
@@ -280,16 +317,28 @@ async function spusti() {
   sock.ev.on("connection.update", (u) => {
     const { connection, lastDisconnect, qr } = u;
 
-    /* QR kreslíme len vtedy, keď sa nepáruje kódom — inak by v logoch skákali
-       dve rôzne inštrukcie naraz a človek by nevedel, čoho sa držať. */
-    if (qr && !PAIR_NUMBER) {
-      console.log("\n=== Naskenuj tento QR kód vo WhatsApp → Prepojené zariadenia ===\n");
-      qrcode.generate(qr, { small: true });
+    /* QR posielame serveru vždy — v appke sa dá naskenovať telefónom a je to
+       spoľahlivejšia cesta než prepisovanie kódu. Do logov ho kreslíme len
+       vtedy, keď sa nepáruje kódom: inak by tam skákali dve inštrukcie naraz
+       a človek by nevedel, čoho sa držať. */
+    if (qr) {
+      prihlasovanie.qr = qr;
+      ohlasSa(sock, "čaká na prepojenie");
+      if (!PAIR_NUMBER) {
+        console.log("\n=== Naskenuj tento QR kód vo WhatsApp → Prepojené zariadenia ===");
+        console.log("(to isté je vidieť aj v appke: menu → WhatsApp chaty)\n");
+        qrcode.generate(qr, { small: true });
+      }
     }
 
     if (connection === "open") {
       poslednePripojenie = Date.now();
       stopParovanie();
+      // prepojené — párovacie údaje už netreba nikde držať
+      prihlasovanie.kodParovania = "";
+      prihlasovanie.kodDo = "";
+      prihlasovanie.qr = "";
+      prihlasovanie.chyba = "";
       log.info("pripojené k WhatsAppu");
       ohlasSa(sock, "beží");
       // raz za minútu: "žijem" + aktuálny zoznam skupín + čerstvý zoznam zapnutých chatov
@@ -307,6 +356,11 @@ async function spusti() {
          pripojí znova, už s novým prihlásením. Ideme rýchlo — keď sa otáľa,
          WhatsApp prepojenie zruší a v telefóne to vyzerá ako neúspech. */
       const poParovani = kod === DisconnectReason.restartRequired || kod === 515;
+      if (!poParovani && !sock.authState?.creds?.registered) {
+        prihlasovanie.chyba = odhlasene
+          ? "WhatsApp prepojenie odmietol (odhlásené)"
+          : "spojenie spadlo, kód " + (kod ?? "?") + " — skúšam znova";
+      }
       log.warn(
         { kod },
         odhlasene

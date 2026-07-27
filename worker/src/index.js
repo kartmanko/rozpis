@@ -97,6 +97,8 @@ async function readBridges(env) {
   const list = await env.ROZPIS_KV.list({ prefix: "bridge:" });
   const out = [];
   for (const k of list.keys) {
+    // pod "bridge:token" nie je čítačka, ale kód pre čítačky — sem nepatrí
+    if (k.name === BRIDGE_TOKEN_KEY) continue;
     const raw = await env.ROZPIS_KV.get(k.name);
     if (!raw) continue;
     try { out.push(JSON.parse(raw)); } catch { /* poškodený záznam preskoč */ }
@@ -631,11 +633,24 @@ async function handleBridgePing(request, env) {
 
   const bridgeId = String(body.bridgeId || "").slice(0, 40);
   if (!bridgeId) return json({ error: "Chýba bridgeId." }, 400, env);
+  // "token" by v KV prepísal kód pre čítačky — pod tým menom čítačka bežať nesmie
+  if (BRIDGE_KEY(bridgeId) === BRIDGE_TOKEN_KEY) {
+    return json({ error: "bridgeId 'token' je vyhradené, zvoľ iné." }, 400, env);
+  }
 
+  /* Ako sa čítačke darí prihlásiť. Je to tu preto, aby sa párovanie dalo dokončiť
+     z appky a nikto nemusel čítať logy kontajnera. `qr` a `kodParovania` sú
+     prihlasovacie údaje — von ich púšťa iba /bridge/status, a to len adminovi
+     a vedúcemu. Dĺžky orezávame, nech sa do KV nedostane čokoľvek. */
   await bridgePing(env, bridgeId, {
     stav: String(body.stav || "beží").slice(0, 60),
     cislo: String(body.cislo || "").slice(0, 40),
     verzia: String(body.verzia || "").slice(0, 20),
+    waVerzia: String(body.waVerzia || "").slice(0, 40),
+    kodParovania: String(body.kodParovania || "").slice(0, 20),
+    kodDo: String(body.kodDo || "").slice(0, 40),
+    qr: String(body.qr || "").slice(0, 1000),
+    chyba: String(body.chyba || "").slice(0, 200),
   });
 
   // doplň novoobjavené skupiny do zoznamu (vypnuté), názvy existujúcich zaktualizuj
@@ -668,7 +683,15 @@ async function handleBridgePing(request, env) {
 async function handleBridgeStatus(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
-  return json({ bridges: await readBridges(env) }, 200, env);
+
+  /* Stav čítačiek (beží / neozvala sa) smie vidieť ktokoľvek prihlásený. Ale QR
+     a párovací kód sú prihlasovacie údaje do WhatsAppu — kto ich má, prepojí si
+     vlastné zariadenie. Preto ich dostane iba ten, kto aj tak potvrdzuje zmeny:
+     hlavný admin a vedúci. Ostatným ich odtiaľto vystrihneme. */
+  const bridges = await readBridges(env);
+  if (roleCaps(user.role).pending) return json({ bridges }, 200, env);
+  const ostrihane = bridges.map(({ qr, kodParovania, kodDo, ...zvysok }) => zvysok);
+  return json({ bridges: ostrihane }, 200, env);
 }
 
 /* GET /bridge/token  — ukáže kód pre čítačku (vyrobí ho, ak ešte nie je)
