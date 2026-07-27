@@ -34,6 +34,19 @@ Ako sa čítačka preloží na iné číslo: v telefóne odhlásiť zariadenie *
 (napr. `/data/auth-esim`) → Stop → Start → naskenovať nové QR z appky.
 Zväzok `f18-auth` sa mazať nemusí.
 
+### Baileys: `creds.registered` klame pri QR
+
+Baileys nastaví `creds.registered = true` iba pri párovaní **párovacím kódom**.
+Pri **QR** ho nenastaví nikdy — po úspešnom prepojení tam ostane `false`. QR
+zapisuje `creds.me.id`. Nikdy nepoužívaj `registered` ako dôkaz prihlásenia;
+v `bridge/index.js` je na to `dokoncenePrihlasenie()` a test
+`bridge/test-auth-stav.mjs`.
+
+Keď v appke odídu **obe** čítačky naraz, nie je to WhatsApp — obe reštartuje
+ten istý strážca, takže spoločná príčina býva v našom kóde. Najprv over, či sú
+v telefóne (Prepojené zariadenia) ešte tie zariadenia „Ubuntu": keď tam sú,
+WhatsApp nič nezrušil a chyba je naša.
+
 ## Ako sa s ním pracuje
 
 - Odpovede krátke a vecné. Žiadne ospravedlňovanie.

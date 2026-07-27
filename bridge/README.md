@@ -73,6 +73,23 @@ v `index.js`:
    zhodia aj ten ďalší. Čítačka ich pri štarte zahodí — ale iba nedokončené,
    hotového prihlásenia sa nedotkne.
 
+### Pozor na `creds.registered` — na tomto to už raz spadlo
+
+Baileys nastaví `creds.registered = true` **iba pri párovaní párovacím kódom**.
+Pri párovaní cez QR ho nenastaví nikdy: aj po úplne úspešnom prepojení tam
+navždy ostane `false`. Čo QR zapíše, je `creds.me.id`.
+
+Kód sa preto pýta funkcie `dokoncenePrihlasenie()`, nie priamo `registered`.
+Keď sa to raz spravilo naopak, čítačka si pri každom reštarte zahodila funkčné
+prihlásenie a pýtala nové QR — a keďže obe čítačky reštartuje ten istý strážca,
+odišli obe naraz a vyzeralo to ako zásah zo strany WhatsAppu.
+
+Stráži to `bridge/test-auth-stav.mjs` (beží bez WhatsAppu):
+
+```bash
+cd bridge && node test-auth-stav.mjs
+```
+
 Kód platí necelé tri minúty. Keď ho nestihneš prepísať, čítačka si o chvíľu
 vypýta nový a v appke sa sám prepíše. Netreba nič reštartovať, stačí prepísať
 ten posledný.

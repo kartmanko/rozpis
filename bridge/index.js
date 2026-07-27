@@ -169,10 +169,24 @@ process.on("uncaughtException", (e) => {
   process.exit(1);
 });
 
+/* Je prihlásenie na disku hotové, alebo je to len rozrobený pokus?
+
+   POZOR, toto je presne to, na čom nám obe čítačky spadli: `creds.registered`
+   NIE JE spoľahlivá odpoveď. Baileys ho nastaví na true iba vtedy, keď sa
+   párovalo párovacím kódom (Socket/messages-recv.js). Pri párovaní cez QR ho
+   nenastaví nikdy — po úspešnom prepojení tam ostane false navždy.
+
+   Čo QR párovanie naozaj zapíše, je `creds.me.id` (Utils/validate-connection.js,
+   configureSuccessfulPairing) — a to je jediné, čoho sa dá držať pri obidvoch
+   cestách. Preto sa pýtame naň. */
+function dokoncenePrihlasenie(creds) {
+  return !!(creds?.me?.id || creds?.registered);
+}
+
 /* Nedokončené prihlásenie sa musí zahodiť. Keď párovanie zlyhá v polovici,
    ostanú na disku kľúče z pokusu, ktorý WhatsApp neschválil — a s nimi zlyhá aj
-   ďalší pokus, hoci by inak prešiel. Zahadzujeme iba nedokončené: hotové
-   prihlásenie má registered = true a toho sa nedotkneme nikdy.
+   ďalší pokus, hoci by inak prešiel. Zahadzujeme iba nedokončené; hotového
+   prihlásenia sa nedotkneme nikdy.
 
    Zahodiť sa smie výhradne pri prvom štarte procesu. Hneď po úspešnom spárovaní
    totiž WhatsApp spojenie zámerne zhodí (kód 515) a čítačka sa pripája znova —
@@ -182,10 +196,12 @@ let prvyStart = true;
 
 async function pripravAuth() {
   let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  if (prvyStart && !state.creds?.registered) {
+  if (prvyStart && !dokoncenePrihlasenie(state.creds)) {
     await rm(AUTH_DIR, { recursive: true, force: true });
     ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
     log.info("nedokončené prihlásenie som zahodil, párujem odznova");
+  } else if (prvyStart) {
+    log.info({ cislo: state.creds?.me?.id || "?" }, "prihlásenie z disku je hotové, nechávam ho tak");
   }
   prvyStart = false;
   return { state, saveCreds };
@@ -278,10 +294,10 @@ async function spusti() {
     if (parovanie) { clearInterval(parovanie); parovanie = null; }
     if (cakanie) { clearInterval(cakanie); cakanie = null; }
   };
-  if (!sock.authState?.creds?.registered) ohlasSa(sock, "čaká na prepojenie");
+  if (!dokoncenePrihlasenie(sock.authState?.creds)) ohlasSa(sock, "čaká na prepojenie");
 
   async function vypytajKod() {
-    if (sock.authState?.creds?.registered) return stopParovanie();
+    if (dokoncenePrihlasenie(sock.authState?.creds)) return stopParovanie();
     try {
       const kod = await sock.requestPairingCode(PAIR_NUMBER);
       const pekne = String(kod).match(/.{1,4}/g).join("-");
@@ -303,7 +319,7 @@ async function spusti() {
     }
   }
 
-  if (PAIR_NUMBER && !sock.authState?.creds?.registered) {
+  if (PAIR_NUMBER && !dokoncenePrihlasenie(sock.authState?.creds)) {
     setTimeout(() => {
       vypytajKod();
       /* Kód od WhatsAppu vydrží asi tri minúty. Keď ho človek nestihne prepísať,
@@ -359,7 +375,7 @@ async function spusti() {
          pripojí znova, už s novým prihlásením. Ideme rýchlo — keď sa otáľa,
          WhatsApp prepojenie zruší a v telefóne to vyzerá ako neúspech. */
       const poParovani = kod === DisconnectReason.restartRequired || kod === 515;
-      if (!poParovani && !sock.authState?.creds?.registered) {
+      if (!poParovani && !dokoncenePrihlasenie(sock.authState?.creds)) {
         prihlasovanie.chyba = odhlasene
           ? "WhatsApp prepojenie odmietol (odhlásené)"
           : "spojenie spadlo, kód " + (kod ?? "?") + " — skúšam znova";
