@@ -120,11 +120,18 @@ async function bridgePing(env, bridgeId, info) {
     if (rovnake && Number.isFinite(odvtedy) && odvtedy >= 0 && odvtedy < BRIDGE_ZAPIS_NAJVIAC_MS) return;
   }
 
-  await env.ROZPIS_KV.put(
-    kluc,
-    JSON.stringify({ id: bridgeId, ...info, poslednyKrat: new Date().toISOString() }),
-    { expirationTtl: BRIDGE_TTL },
-  );
+  /* Keď sa zápis nepodarí (napríklad je minutý denný strop KV), čítačka kvôli
+     tomu nesmie prestať čítať — v paneli sa bude tváriť ako mŕtva, ale zoznam
+     zapnutých skupín jej aj tak vrátime a správy chodia ďalej. */
+  try {
+    await env.ROZPIS_KV.put(
+      kluc,
+      JSON.stringify({ id: bridgeId, ...info, poslednyKrat: new Date().toISOString() }),
+      { expirationTtl: BRIDGE_TTL },
+    );
+  } catch (e) {
+    console.log("ohlásenie čítačky sa nezapísalo:", e && e.message);
+  }
 }
 
 async function readBridges(env) {
@@ -1175,88 +1182,115 @@ async function upozorniNaDispo(env, navrh) {
   }
 }
 
+/* Keď niečo spadne, nesmie to skončiť ako holá výnimka Cloudflaru — tá príde
+   bez CORS hlavičiek a prehliadač z nej urobí nič nehovoriace „Load failed".
+   Appka potom vyzerá pokazená, hoci server presne vie, čo sa stalo.
+
+   Najčastejšia príčina je vyčerpaný denný strop Cloudflare KV (zadarmo 1000
+   zápisov denne). KV vtedy vyhodí chybu s 429 a appka to má povedať rovno,
+   nie mlčať. Strop sa vracia o polnoci UTC. */
+function chybaOdpoved(e, env) {
+  const text = String((e && e.message) || e || "");
+  console.log("požiadavka spadla:", text);
+  if (/429|rate limit|exceeded/i.test(text)) {
+    return json({
+      error: "Cloudflare KV minulo denný limit zápisov. Uložiť sa dá až po polnoci UTC.",
+      kod: "kv_strop",
+    }, 503, env);
+  }
+  return json({ error: "Chyba servera: " + text.slice(0, 200) }, 500, env);
+}
+
+async function smeruj(request, env, ctx) {
+  const url = new URL(request.url);
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders(env) });
+  }
+
+  // --- prihlásenie a používatelia (Fáza 1) ---
+  if (url.pathname === "/auth/request" && request.method === "POST") {
+    return handleAuthRequest(request, env, json);
+  }
+  if (url.pathname === "/auth/verify" && request.method === "POST") {
+    return handleAuthVerify(request, env, json, corsHeaders);
+  }
+  if (url.pathname === "/auth/me" && request.method === "GET") {
+    return handleAuthMe(request, env, json);
+  }
+  if (url.pathname === "/auth/logout" && request.method === "POST") {
+    return handleAuthLogout(request, env, corsHeaders);
+  }
+  if (url.pathname === "/auth/users" && request.method === "GET") {
+    return handleGetUsers(request, env, json);
+  }
+  if (url.pathname === "/auth/users" && request.method === "POST") {
+    return handlePostUsers(request, env, json);
+  }
+
+  if (url.pathname === "/data" && request.method === "GET") {
+    return handleGetData(request, env);
+  }
+  if (url.pathname === "/data" && request.method === "POST") {
+    return handlePostData(request, env);
+  }
+  if (url.pathname === "/parse" && request.method === "POST") {
+    return handlePostParse(request, env);
+  }
+  if (url.pathname === "/version" && request.method === "GET") {
+    return handleGetVersion(env);
+  }
+  // --- WhatsApp bridge (Fáza 3) ---
+  if (url.pathname === "/bridge/ping" && request.method === "POST") {
+    return handleBridgePing(request, env);
+  }
+  if (url.pathname === "/bridge/status" && request.method === "GET") {
+    return handleBridgeStatus(request, env);
+  }
+  if (url.pathname === "/bridge/token" && (request.method === "GET" || request.method === "POST")) {
+    return handleBridgeToken(request, env);
+  }
+  if (url.pathname === "/chaty/zabudni" && request.method === "POST") {
+    return handleChatyZabudni(request, env);
+  }
+  if (url.pathname === "/hook" && request.method === "POST") {
+    return handlePostHook(request, env);
+  }
+  // --- dispozícia mailom (Fáza 5) ---
+  if (url.pathname === "/dispo/mail" && request.method === "POST") {
+    return handleDispoMail(request, env);
+  }
+  // --- upozornenia do telefónu (Fáza 6) ---
+  if (url.pathname === "/push/key" && request.method === "GET") {
+    return handlePushKey(request, env);
+  }
+  if (url.pathname === "/push/subscribe" && request.method === "POST") {
+    return handlePushSubscribe(request, env);
+  }
+  if (url.pathname === "/push/unsubscribe" && request.method === "POST") {
+    return handlePushUnsubscribe(request, env);
+  }
+  if (url.pathname === "/push/test" && request.method === "POST") {
+    return handlePushTest(request, env);
+  }
+  if (url.pathname === "/push/oznam" && request.method === "POST") {
+    return handlePushOznam(request, env, ctx);
+  }
+
+  return json({ error: "Not found" }, 404, env);
+}
+
 export default {
   async fetch(request, env, ctx) {
     /* Každá požiadavka dostane vlastnú krátkodobú pamäť na KV (viď kes.js),
        nech sa ten istý kľúč nečíta dva- a trikrát za sebou. Naprieč
        požiadavkami sa nekešuje nič. */
     env = sKesou(env);
-    const url = new URL(request.url);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders(env) });
+    try {
+      return await smeruj(request, env, ctx);
+    } catch (e) {
+      return chybaOdpoved(e, env);
     }
-
-    // --- prihlásenie a používatelia (Fáza 1) ---
-    if (url.pathname === "/auth/request" && request.method === "POST") {
-      return handleAuthRequest(request, env, json);
-    }
-    if (url.pathname === "/auth/verify" && request.method === "POST") {
-      return handleAuthVerify(request, env, json, corsHeaders);
-    }
-    if (url.pathname === "/auth/me" && request.method === "GET") {
-      return handleAuthMe(request, env, json);
-    }
-    if (url.pathname === "/auth/logout" && request.method === "POST") {
-      return handleAuthLogout(request, env, corsHeaders);
-    }
-    if (url.pathname === "/auth/users" && request.method === "GET") {
-      return handleGetUsers(request, env, json);
-    }
-    if (url.pathname === "/auth/users" && request.method === "POST") {
-      return handlePostUsers(request, env, json);
-    }
-
-    if (url.pathname === "/data" && request.method === "GET") {
-      return handleGetData(request, env);
-    }
-    if (url.pathname === "/data" && request.method === "POST") {
-      return handlePostData(request, env);
-    }
-    if (url.pathname === "/parse" && request.method === "POST") {
-      return handlePostParse(request, env);
-    }
-    if (url.pathname === "/version" && request.method === "GET") {
-      return handleGetVersion(env);
-    }
-    // --- WhatsApp bridge (Fáza 3) ---
-    if (url.pathname === "/bridge/ping" && request.method === "POST") {
-      return handleBridgePing(request, env);
-    }
-    if (url.pathname === "/bridge/status" && request.method === "GET") {
-      return handleBridgeStatus(request, env);
-    }
-    if (url.pathname === "/bridge/token" && (request.method === "GET" || request.method === "POST")) {
-      return handleBridgeToken(request, env);
-    }
-    if (url.pathname === "/chaty/zabudni" && request.method === "POST") {
-      return handleChatyZabudni(request, env);
-    }
-    if (url.pathname === "/hook" && request.method === "POST") {
-      return handlePostHook(request, env);
-    }
-    // --- dispozícia mailom (Fáza 5) ---
-    if (url.pathname === "/dispo/mail" && request.method === "POST") {
-      return handleDispoMail(request, env);
-    }
-    // --- upozornenia do telefónu (Fáza 6) ---
-    if (url.pathname === "/push/key" && request.method === "GET") {
-      return handlePushKey(request, env);
-    }
-    if (url.pathname === "/push/subscribe" && request.method === "POST") {
-      return handlePushSubscribe(request, env);
-    }
-    if (url.pathname === "/push/unsubscribe" && request.method === "POST") {
-      return handlePushUnsubscribe(request, env);
-    }
-    if (url.pathname === "/push/test" && request.method === "POST") {
-      return handlePushTest(request, env);
-    }
-    if (url.pathname === "/push/oznam" && request.method === "POST") {
-      return handlePushOznam(request, env, ctx);
-    }
-
-    return json({ error: "Not found" }, 404, env);
   },
 
   /* Sem príde mail z Cloudflare Email Routing. Nič neodpisujeme a nič
