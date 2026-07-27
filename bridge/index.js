@@ -182,7 +182,7 @@ let prvyStart = true;
 
 async function pripravAuth() {
   let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  if (prvyStart && PAIR_NUMBER && !state.creds?.registered) {
+  if (prvyStart && !state.creds?.registered) {
     await rm(AUTH_DIR, { recursive: true, force: true });
     ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
     log.info("nedokončené prihlásenie som zahodil, párujem odznova");
@@ -255,7 +255,10 @@ async function spusti() {
        ideme na overenú kombináciu Ubuntu/Chrome; v telefóne sa to potom v zozname
        prepojených zariadení volá "Ubuntu". Pri QR na názve nezáleží, tam si
        necháme svoj. */
-    browser: PAIR_NUMBER ? Browsers.ubuntu("Chrome") : ["FARMA 18 rozpis", "Chrome", VERZIA],
+    /* Vlastný vymyslený názov prehliadača WhatsApp pri prepájaní odmieta —
+       platí to pre párovací kód aj pre QR. Preto sa hlásime ako Ubuntu/Chrome
+       a v telefóne sa zariadenie volá "Ubuntu". */
+    browser: Browsers.ubuntu("Chrome"),
   });
 
   sock.ev.on("creds.update", saveCreds);

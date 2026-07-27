@@ -12,7 +12,12 @@
 #
 # Vymeniť treba dve hodnoty dole:
 #   HOOK_SECRET – kód z appky: menu → WhatsApp chaty → Kód pre čítačku
-#   PAIR_NUMBER – číslo eSIM bez plusu a bez medzier, napr. 421901234567
+#   PAIR_NUMBER – číslo eSIM bez plusu a bez medzier, napr. 421901234567.
+#                 Keď ho necháš prázdne, čítačka sa neprepája kódom, ale ukáže
+#                 v appke QR na naskenovanie — to prejde spoľahlivejšie.
+#
+# Párovanie sa dokončuje v appke: menu → WhatsApp chaty. Kód aj QR sú tam,
+# do logov kontajnera netreba chodiť.
 
 services:
   f18-bridge:

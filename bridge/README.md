@@ -40,13 +40,18 @@ iný — starý tým hneď prestane platiť a čítačkám treba vpísať nový.
 
 Sú dve cesty a stačí jedna:
 
-- **Párovacím kódom** (jednoduchšie, keď je eSIM v telefóne, ktorý máš v ruke).
-  Nastav `PAIR_NUMBER` na číslo eSIM bez plusu a bez medzier. Čítačka vypíše do
-  logov osemznakový kód a ten v telefóne iba prepíšeš: *WhatsApp → Nastavenia →
-  Prepojené zariadenia → Prepojiť zariadenie → **Prepojiť pomocou telefónneho
-  čísla***. Netreba druhú obrazovku ani nič skenovať.
-- **QR kódom** — keď `PAIR_NUMBER` nenastavíš, čítačka nakreslí do logov QR a ten
-  naskenuješ telefónom. Potrebuješ na to druhú obrazovku.
+Obidve sa dajú dokončiť **priamo v appke**: menu → **WhatsApp chaty**. Kým je
+čítačka neprepojená, je tam jej párovací kód aj QR na naskenovanie a vidno tam
+aj poslednú chybu. Do logov kontajnera netreba chodiť.
+
+- **QR kódom** (spoľahlivejšie). Nechaj `PAIR_NUMBER` prázdne. V appke sa objaví
+  QR, ktorý naskenuješ telefónom: *WhatsApp → Nastavenia → Prepojené zariadenia
+  → Prepojiť zariadenie*. Appka pritom beží na inom zariadení než telefón, takže
+  druhú obrazovku máš aj tak.
+- **Párovacím kódom.** Nastav `PAIR_NUMBER` na číslo eSIM bez plusu a bez
+  medzier. Čítačka vypýta osemznakový kód a ten v telefóne prepíšeš: *…→
+  Prepojiť zariadenie → **Prepojiť pomocou telefónneho čísla***. Skenovať
+  netreba nič, ale WhatsApp túto cestu odmieta častejšie.
 
 Prihlásenie sa ukladá na trvalý disk (`AUTH_DIR`), takže sa robí **iba raz** —
 reštart ani nová verzia ho nezhodí.
@@ -61,16 +66,19 @@ v `index.js`:
    priamo WhatsAppu. Keby sa k nemu nedostala, napíše to do logov — vtedy
    pomôže vpísať `WA_VERSION` ručne (aktuálne číslo je vidieť v zdrojáku
    stránky web.whatsapp.com).
-2. **Vlastný názov prehliadača.** Pri párovaní kódom WhatsApp neprijme
-   vymyslený názov, takže sa čítačka hlási ako Ubuntu/Chrome. V telefóne sa
-   preto v zozname prepojených zariadení volá **Ubuntu**.
+2. **Vlastný názov prehliadača.** WhatsApp pri prepájaní neprijme vymyslený
+   názov, takže sa čítačka hlási ako Ubuntu/Chrome. V telefóne sa preto
+   v zozname prepojených zariadení volá **Ubuntu**.
 3. **Nedokončený predošlý pokus.** Kľúče z pokusu, ktorý WhatsApp neschválil,
    zhodia aj ten ďalší. Čítačka ich pri štarte zahodí — ale iba nedokončené,
    hotového prihlásenia sa nedotkne.
 
 Kód platí necelé tri minúty. Keď ho nestihneš prepísať, čítačka si o chvíľu
-vypýta nový a vypíše ho do logov. Netreba nič reštartovať, stačí prepísať ten
-posledný.
+vypýta nový a v appke sa sám prepíše. Netreba nič reštartovať, stačí prepísať
+ten posledný.
+
+Keď párovací kód neprejde ani na tretí pokus, vymaž `PAIR_NUMBER` (nechaj ho
+prázdne), reštartuj kontajner a naskenuj QR z appky.
 
 ## Fly.io (hlavná čítačka)
 
