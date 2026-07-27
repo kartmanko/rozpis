@@ -25,12 +25,14 @@
  */
 
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
 } from "baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
+import { rm } from "node:fs/promises";
 
 const API_BASE = (process.env.API_BASE || "").replace(/\/$/, "");
 const HOOK_SECRET = process.env.HOOK_SECRET || "";
@@ -147,9 +149,23 @@ process.on("uncaughtException", (e) => {
   process.exit(1);
 });
 
+/* Nedokončené prihlásenie sa musí zahodiť. Keď párovanie zlyhá v polovici,
+   ostanú na disku kľúče z pokusu, ktorý WhatsApp neschválil — a s nimi zlyhá aj
+   ďalší pokus, hoci by inak prešiel. Zahadzujeme iba nedokončené: hotové
+   prihlásenie má registered = true a toho sa nedotkneme nikdy. */
+async function pripravAuth() {
+  let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  if (PAIR_NUMBER && !state.creds?.registered) {
+    await rm(AUTH_DIR, { recursive: true, force: true });
+    ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
+    log.info("nedokončené prihlásenie som zahodil, párujem odznova");
+  }
+  return { state, saveCreds };
+}
+
 async function spusti() {
   log.info({ bridgeId: BRIDGE_ID, api: API_BASE, authDir: AUTH_DIR }, "čítačka sa spúšťa");
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { state, saveCreds } = await pripravAuth();
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -160,7 +176,13 @@ async function spusti() {
     markOnlineOnConnect: false,
     // ani potvrdenia o prečítaní neposielame
     syncFullHistory: false,
-    browser: ["FARMA 18 rozpis", "Chrome", VERZIA],
+    /* Ako sa čítačka predstaví. Pri párovaní kódom to NIE JE kozmetika: WhatsApp
+       vydá párovací kód, ale prepojenie potom odmietne ("Nepodarilo sa prepojiť
+       zariadenie"), keď sa klient hlási vlastným vymysleným názvom. Pri kóde teda
+       ideme na overenú kombináciu Ubuntu/Chrome; v telefóne sa to potom v zozname
+       prepojených zariadení volá "Ubuntu". Pri QR na názve nezáleží, tam si
+       necháme svoj. */
+    browser: PAIR_NUMBER ? Browsers.ubuntu("Chrome") : ["FARMA 18 rozpis", "Chrome", VERZIA],
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -171,18 +193,31 @@ async function spusti() {
      → Prepojiť pomocou telefónneho čísla). Pýtame ho iba raz, pri prvom prihlásení;
      keď už je prihlásenie na disku, tento blok sa preskočí. Krátke počkanie je
      naschvál — Baileys musí najprv nadviazať spojenie, inak kód nevydá. */
+  let parovanie = null;
+  const stopParovanie = () => { if (parovanie) { clearInterval(parovanie); parovanie = null; } };
+
+  async function vypytajKod() {
+    if (sock.authState?.creds?.registered) return stopParovanie();
+    try {
+      const kod = await sock.requestPairingCode(PAIR_NUMBER);
+      const pekne = String(kod).match(/.{1,4}/g).join("-");
+      console.log("\n=== PÁROVACÍ KÓD: " + pekne + " ===");
+      console.log("Prepíš ho v telefóne: WhatsApp → Nastavenia → Prepojené zariadenia");
+      console.log("→ Prepojiť zariadenie → Prepojiť pomocou telefónneho čísla.");
+      console.log("Platí necelé tri minúty. Keď vyprší, o chvíľu sa tu objaví nový —");
+      console.log("nič nereštartuj, iba počkaj a prepíš ten posledný.\n");
+    } catch (e) {
+      log.error({ e: e.message }, "párovací kód sa nepodarilo vypýtať — použi QR nižšie");
+    }
+  }
+
   if (PAIR_NUMBER && !sock.authState?.creds?.registered) {
-    setTimeout(async () => {
-      try {
-        const kod = await sock.requestPairingCode(PAIR_NUMBER);
-        const pekne = String(kod).match(/.{1,4}/g).join("-");
-        console.log("\n=== PÁROVACÍ KÓD: " + pekne + " ===");
-        console.log("Prepíš ho v telefóne: WhatsApp → Nastavenia → Prepojené zariadenia");
-        console.log("→ Prepojiť zariadenie → Prepojiť pomocou telefónneho čísla.");
-        console.log("Kód platí pár minút; keď vyprší, čítačka vypíše nový.\n");
-      } catch (e) {
-        log.error({ e: e.message }, "párovací kód sa nepodarilo vypýtať — použi QR nižšie");
-      }
+    setTimeout(() => {
+      vypytajKod();
+      /* Kód od WhatsAppu vydrží asi tri minúty. Keď ho človek nestihne prepísať,
+         nemá zmysel nechať ho v logoch svietiť ako platný — radšej si pýtame nový,
+         kým sa prihlásenie nedokončí. Prestaneme hneď, ako je registered. */
+      parovanie = setInterval(vypytajKod, 150_000);
     }, 4000);
   }
 
@@ -202,6 +237,7 @@ async function spusti() {
 
     if (connection === "open") {
       poslednePripojenie = Date.now();
+      stopParovanie();
       log.info("pripojené k WhatsAppu");
       ohlasSa(sock, "beží");
       // raz za minútu: "žijem" + aktuálny zoznam skupín + čerstvý zoznam zapnutých chatov
@@ -211,6 +247,7 @@ async function spusti() {
 
     if (connection === "close") {
       stopCasovac();
+      stopParovanie();
       const kod = lastDisconnect?.error?.output?.statusCode;
       const odhlasene = kod === DisconnectReason.loggedOut;
       log.warn(
