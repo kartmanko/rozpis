@@ -78,7 +78,7 @@ and Secrets):
 | --- | --- |
 | `ADMIN_PASSWORD` | núdzový prístup hlavného admina bez mailu |
 | `RESEND_API_KEY` | odosielanie prihlasovacích mailov |
-| `HOOK_SECRET` | overenie WhatsApp bridge pri `POST /hook` |
+| `HOOK_SECRET` | overenie WhatsApp bridge pri `POST /hook` (nepovinné, pozri nižšie) |
 | `ANTHROPIC_API_KEY` | rozpoznávanie WhatsApp screenshotov (nepovinné) |
 
 Verejné premenné vo `[vars]`: `ALLOWED_ORIGIN`, `APP_URL`, `COOKIE_DOMAIN`,
@@ -89,6 +89,12 @@ VAPID podpisu, napr. `mailto:…`; keď chýba, použije sa
 Kľúč pre upozornenia (VAPID) si server vyrobí **sám** pri prvom použití a odloží
 ho do KV pod `push:vapid`. Nie je ho treba nikde generovať ani nikam vkladať a
 nikdy sa nedostane do repozitára.
+
+Podobne kód pre WhatsApp čítačku: server si ho vyrobí sám a odloží do KV pod
+`bridge:token`. Admin a vedúci ho vidia priamo v appke (menu → **WhatsApp
+chaty** → *Kód pre čítačku*) a odtiaľ ho skopírujú čítačke do `HOOK_SECRET`.
+Dá sa tam aj vymeniť za nový. Cloudflare secret `HOOK_SECRET`, ak je nastavený,
+platí súčasne — čítačke stačí ktorékoľvek z tých dvoch.
 
 ### Dispo mail — nastavenie Email Routing
 
@@ -109,7 +115,8 @@ Dáta: `GET /data`, `POST /data` (celý stav naraz, s `baseVersion` proti
 prepísaniu cudzích zmien — pri konflikte 409), `GET /version`.
 
 WhatsApp: `POST /hook` (bridge), `POST /bridge/ping`, `GET /bridge/status`,
-`POST /parse` (screenshoty).
+`GET|POST /bridge/token` (kód pre čítačku — pozrieť a vymeniť; smie len rola,
+ktorá potvrdzuje zmeny), `POST /parse` (screenshoty).
 
 Dispo: `POST /dispo/mail` (to isté, čo robí mailový handler — na skúšanie).
 

@@ -21,12 +21,19 @@ obidve odhlásilo a musel by si znova skenovať QR.
 | Premenná | Načo je |
 |---|---|
 | `API_BASE` | `https://api.kartmanko.cc` |
-| `HOOK_SECRET` | to isté tajomstvo, aké má Cloudflare Worker |
+| `HOOK_SECRET` | kód, ktorým sa čítačka preukazuje serveru — pozri nižšie |
 | `BRIDGE_ID` | `fly` alebo `nas` — iba na rozlíšenie v appke |
 | `AUTH_DIR` | priečinok na **trvalom** disku, kde sa drží prihlásenie |
 | `PAIR_NUMBER` | nepovinné: číslo eSIM, napr. `421901234567` — pozri nižšie |
 
 `HOOK_SECRET` sa nikdy nepíše do súborov v repozitári.
+
+## Odkiaľ vziať `HOOK_SECRET`
+
+Z appky. Menu → **WhatsApp chaty** → *Kód pre čítačku* → **Ukázať kód** →
+**Skopírovať**. Vidí ho iba hlavný admin a vedúci. Ten istý kód sa dá vpísať
+obom čítačkám. Keby sa niekam zatúlal, tlačidlom **Vymeniť za nový** sa vyrobí
+iný — starý tým hneď prestane platiť a čítačkám treba vpísať nový.
 
 ## Ako sa čítačka prihlási do WhatsAppu
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchBridges } from "../api";
+import { fetchBridges, fetchBridgeToken, noveBridgeToken } from "../api";
 
 /* Sledované WhatsApp chaty a stav čítačiek (Fáza 3).
 
@@ -64,6 +64,98 @@ function StavBridgeov({ bridges, chyba }) {
   );
 }
 
+/* Kód pre čítačku. Je to tajomstvo, tak sa nezobrazuje samo od seba — treba naň
+   kliknúť. Zámerne je tu aj tlačidlo na výmenu: keby sa kód niekam zatúlal,
+   nech sa dá vymeniť z appky a nie cez wrangler alebo dashboard. */
+function KodCitacky({ canEdit }) {
+  const [kod, setKod] = useState("");
+  const [ajSecret, setAjSecret] = useState(false);
+  const [otvorene, setOtvorene] = useState(false);
+  const [pracuje, setPracuje] = useState(false);
+  const [hlaska, setHlaska] = useState("");
+
+  if (!canEdit) return null;
+
+  const nacitaj = async () => {
+    setPracuje(true);
+    setHlaska("");
+    try {
+      const d = await fetchBridgeToken();
+      setKod(d.kod || "");
+      setAjSecret(!!d.aj_secret);
+      setOtvorene(true);
+    } catch (e) {
+      setHlaska(e.message);
+    }
+    setPracuje(false);
+  };
+
+  const vymen = async () => {
+    if (!window.confirm("Vyrobiť nový kód? Čítačky, ktoré bežia so starým, sa hneď prestanú ozývať a treba im vpísať nový.")) return;
+    setPracuje(true);
+    setHlaska("");
+    try {
+      const d = await noveBridgeToken();
+      setKod(d.kod || "");
+      setHlaska("Nový kód je hotový — vpíš ho čítačkám.");
+    } catch (e) {
+      setHlaska(e.message);
+    }
+    setPracuje(false);
+  };
+
+  const skopiruj = async () => {
+    try {
+      await navigator.clipboard.writeText(kod);
+      setHlaska("Skopírované.");
+    } catch {
+      setHlaska("Skopírovať sa nepodarilo — označ to prstom a skopíruj ručne.");
+    }
+  };
+
+  return (
+    <div className="border border-f-border rounded-lg p-2.5 mb-3 bg-f-panel2">
+      <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-faint mb-1.5">Kód pre čítačku</div>
+      {!otvorene ? (
+        <>
+          <div className="text-[11px] text-f-faint2 leading-relaxed mb-2">
+            Týmto kódom sa čítačka preukazuje serveru. Vpíše sa jej raz pri spustení
+            (premenná <span className="font-mono">HOOK_SECRET</span>).
+          </div>
+          <button
+            onClick={nacitaj}
+            disabled={pracuje}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-f-panel hover:bg-f-border text-f-muted disabled:opacity-60"
+          >
+            {pracuje ? "Načítavam…" : "Ukázať kód"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="font-mono text-[11px] break-all bg-f-panel border border-f-border rounded-md p-2 mb-2 text-f-text select-all">
+            {kod}
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={skopiruj} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-f-a text-f-ink">Skopírovať</button>
+            <button onClick={() => setOtvorene(false)} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-f-panel hover:bg-f-border text-f-muted">Skryť</button>
+            <button onClick={vymen} disabled={pracuje} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-f-panel hover:bg-f-border text-f-muted disabled:opacity-60">
+              Vymeniť za nový
+            </button>
+          </div>
+          {ajSecret && (
+            <div className="text-[11px] text-f-faint2 mt-2 leading-relaxed">
+              Pozor: na serveri je nastavené aj staré tajomstvo cez Cloudflare
+              (<span className="font-mono">HOOK_SECRET</span>). Platí súčasne s týmto kódom, takže
+              čítačke stačí ktorékoľvek z nich.
+            </div>
+          )}
+        </>
+      )}
+      {hlaska && <div className="text-[11px] text-f-accent mt-2">{hlaska}</div>}
+    </div>
+  );
+}
+
 export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
   const [bridges, setBridges] = useState([]);
   const [chyba, setChyba] = useState("");
@@ -97,6 +189,8 @@ export default function ChatyPanel({ chaty, canEdit, onSetChat, onClose }) {
       </div>
 
       <StavBridgeov bridges={bridges} chyba={chyba} />
+
+      <KodCitacky canEdit={canEdit} />
 
       <div className="text-[10px] font-extrabold uppercase tracking-widest text-f-faint mb-1.5">Skupiny</div>
       <div className="text-[11px] text-f-faint2 mb-2 leading-relaxed">

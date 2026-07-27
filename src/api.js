@@ -109,6 +109,16 @@ export async function fetchBridges() {
   return request("/bridge/status", { method: "GET" });
 }
 
+/** Kód, ktorým sa čítačka WhatsAppu preukazuje serveru. Vidí ho iba vedúci a admin. */
+export async function fetchBridgeToken() {
+  return request("/bridge/token", { method: "GET" });
+}
+
+/** Vyrobí nový kód pre čítačku. Starý tým hneď prestane platiť. */
+export async function noveBridgeToken() {
+  return request("/bridge/token", { method: "POST" });
+}
+
 export async function parseScreenshot({ base64, mediaType, month }) {
   return jsonPost("/parse", { image: base64, mediaType, month });
 }

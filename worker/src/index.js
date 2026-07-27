@@ -125,9 +125,47 @@ function json(data, status, env) {
   });
 }
 
-function checkHookSecret(request, env) {
+/* ---------- kód pre čítačku WhatsAppu ----------
+
+   Čítačka sa serveru preukazuje hlavičkou X-Hook-Secret. Pôvodne to mohol byť
+   iba Cloudflare secret HOOK_SECRET, lenže ten sa dá nastaviť jedine cez wrangler
+   alebo cez dashboard — a keď ho človek raz nastaví, už si ho nikdy neprečíta.
+   Preto si server vie kód vyrobiť aj sám a odložiť ho do KV; admin ho potom vidí
+   priamo v appke a odtiaľ ho skopíruje do čítačky. Obidve cesty platia naraz,
+   takže HOOK_SECRET, ak je nastavený, funguje ďalej. */
+const BRIDGE_TOKEN_KEY = "bridge:token";
+
+function novyKod() {
+  const b = new Uint8Array(24);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+async function bridgeToken(env, vyrobNovy = false) {
+  if (!vyrobNovy) {
+    const ulozeny = await env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY);
+    if (ulozeny) return ulozeny;
+  }
+  const kod = novyKod();
+  await env.ROZPIS_KV.put(BRIDGE_TOKEN_KEY, kod);
+  return kod;
+}
+
+/* Porovnanie v konštantnom čase — pri tajomstvách sa neoplatí dávať útočníkovi
+   do rúk ani to, ako ďaleko sa jeho tip zhoduje. */
+function rovnakeTajomstvo(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let rozdiel = 0;
+  for (let i = 0; i < a.length; i++) rozdiel |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return rozdiel === 0;
+}
+
+async function checkHookSecret(request, env) {
   const s = request.headers.get("X-Hook-Secret") || "";
-  return env.HOOK_SECRET && s === env.HOOK_SECRET;
+  if (!s) return false;
+  if (env.HOOK_SECRET && rovnakeTajomstvo(s, env.HOOK_SECRET)) return true;
+  const ulozeny = await env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY);
+  return !!ulozeny && rovnakeTajomstvo(s, ulozeny);
 }
 
 async function readState(env) {
@@ -373,7 +411,7 @@ function matchCrewByPhone(crew, phone) {
 }
 
 async function handlePostHook(request, env) {
-  if (!checkHookSecret(request, env)) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+  if (!(await checkHookSecret(request, env))) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
 
   let body;
   try {
@@ -582,7 +620,7 @@ async function handlePostHook(request, env) {
    Nové skupiny sa zapíšu ako VYPNUTÉ — admin si v appke odklikne, ktoré sa majú
    čítať. Kým ich nezapne, appka z nich neprečíta ani písmeno. */
 async function handleBridgePing(request, env) {
-  if (!checkHookSecret(request, env)) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+  if (!(await checkHookSecret(request, env))) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
 
   let body;
   try {
@@ -631,6 +669,24 @@ async function handleBridgeStatus(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
   return json({ bridges: await readBridges(env) }, 200, env);
+}
+
+/* GET /bridge/token  — ukáže kód pre čítačku (vyrobí ho, ak ešte nie je)
+   POST /bridge/token — vyrobí nový; starý tým hneď prestane platiť.
+
+   Vidieť ho smie iba ten, kto aj tak potvrdzuje zmeny (admin a vedúci) — je to
+   kľúč, ktorým sa dá serveru podstrčiť správa, tak nech ho nemá celý štáb. */
+async function handleBridgeToken(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  if (!roleCaps(user.role).pending) {
+    return json({ error: "Kód pre čítačku vidí iba vedúci alebo hlavný admin." }, 403, env);
+  }
+  const novy = request.method === "POST";
+  const kod = await bridgeToken(env, novy);
+  /* Keď je nastavený aj Cloudflare secret, appka to povie — inak by človek hľadal,
+     prečo mu funguje aj kód, ktorý v appke nevidí. */
+  return json({ kod, aj_secret: !!env.HOOK_SECRET, novy }, 200, env);
 }
 
 /* ========== Fáza 5: dispozícia mailom ==========
@@ -874,7 +930,7 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
    Existuje preto, že Email Routing sa zapína v Cloudflare paneli; kým to nie je
    zapnuté (alebo keď mail chodí cez iný preposielač), dá sa dispo poslať sem. */
 async function handleDispoMail(request, env) {
-  if (!checkHookSecret(request, env)) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+  if (!(await checkHookSecret(request, env))) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
 
   let body;
   try {
@@ -1060,6 +1116,9 @@ export default {
     }
     if (url.pathname === "/bridge/status" && request.method === "GET") {
       return handleBridgeStatus(request, env);
+    }
+    if (url.pathname === "/bridge/token" && (request.method === "GET" || request.method === "POST")) {
+      return handleBridgeToken(request, env);
     }
     if (url.pathname === "/hook" && request.method === "POST") {
       return handlePostHook(request, env);
