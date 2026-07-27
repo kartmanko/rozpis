@@ -26,6 +26,10 @@ services:
       AUTH_DIR: "/data/auth"
       HOOK_SECRET: "SEM_KOD_Z_APPKY"
       PAIR_NUMBER: "SEM_CISLO_ESIM"
+      # Núdzová brzda. Nechaj prázdne — čítačka si verziu WhatsApp Webu zistí
+      # sama. Vyplň iba vtedy, keď párovanie hlási "Nepodarilo sa prepojiť
+      # zariadenie" a v logoch svieti, že sa k WhatsAppu nedá dostať po verziu.
+      WA_VERSION: ""
     volumes:
       # Prihlásenie do WhatsAppu. Musí prežiť reštart, inak sa páruje odznova.
       - f18-auth:/data

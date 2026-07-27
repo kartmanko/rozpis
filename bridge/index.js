@@ -28,6 +28,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   useMultiFileAuthState,
 } from "baileys";
 import pino from "pino";
@@ -152,21 +153,72 @@ process.on("uncaughtException", (e) => {
 /* Nedokončené prihlásenie sa musí zahodiť. Keď párovanie zlyhá v polovici,
    ostanú na disku kľúče z pokusu, ktorý WhatsApp neschválil — a s nimi zlyhá aj
    ďalší pokus, hoci by inak prešiel. Zahadzujeme iba nedokončené: hotové
-   prihlásenie má registered = true a toho sa nedotkneme nikdy. */
+   prihlásenie má registered = true a toho sa nedotkneme nikdy.
+
+   Zahodiť sa smie výhradne pri prvom štarte procesu. Hneď po úspešnom spárovaní
+   totiž WhatsApp spojenie zámerne zhodí (kód 515) a čítačka sa pripája znova —
+   keby sme mazali aj vtedy, zmazali by sme čerstvé prihlásenie skôr, než sa
+   stihne použiť, a točili by sme sa dokola. */
+let prvyStart = true;
+
 async function pripravAuth() {
   let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  if (PAIR_NUMBER && !state.creds?.registered) {
+  if (prvyStart && PAIR_NUMBER && !state.creds?.registered) {
     await rm(AUTH_DIR, { recursive: true, force: true });
     ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
     log.info("nedokončené prihlásenie som zahodil, párujem odznova");
   }
+  prvyStart = false;
   return { state, saveCreds };
+}
+
+/* Ktorú verziu WhatsApp Webu sa čítačka pokúsi predstierať.
+   Toto je presne to, na čom párovanie padalo: fetchLatestBaileysVersion() vracia
+   verziu zapečenú v knižnici, a keď je stará, WhatsApp kód síce vydá, ale
+   prepojenie potom odmietne ("Nepodarilo sa prepojiť zariadenie"). Preto sa
+   najprv pýtame priamo WhatsAppu (fetchLatestWaWebVersion) a na knižnicu
+   padáme až vtedy, keď sa k nemu nedá dostať. WA_VERSION je núdzová brzda —
+   dá sa ňou verzia vpísať ručne, napr. "2.3000.1042466098". */
+async function ktoruVerziu() {
+  const rucne = (process.env.WA_VERSION || "").trim();
+  if (rucne) {
+    const c = rucne.split(".").map((x) => Number(x));
+    if (c.length === 3 && c.every((x) => Number.isFinite(x))) {
+      log.info({ verzia: rucne }, "verzia WhatsApp Webu je vpísaná ručne");
+      return c;
+    }
+    log.warn({ WA_VERSION: rucne }, "WA_VERSION nemá tvar 2.3000.1042466098 — ignorujem");
+  }
+  /* Pozor na pascu: fetchLatestWaWebVersion() pri neúspechu nevyhodí chybu, iba
+     vráti svoju vlastnú starú zapečenú verziu a nastaví isLatest = false. Keby
+     sme sa spoliehali len na try/catch, tichý neúspech by sme nespoznali a
+     párovanie by padalo ďalej — presne ako doteraz. Preto pozeráme na isLatest. */
+  let zisteny = null;
+  try {
+    zisteny = await fetchLatestWaWebVersion();
+  } catch (e) {
+    zisteny = { error: e };
+  }
+  if (zisteny?.isLatest && Array.isArray(zisteny.version)) {
+    log.info(
+      { verzia: zisteny.version.join(".") },
+      "verziu WhatsApp Webu som zistil priamo od WhatsAppu",
+    );
+    return zisteny.version;
+  }
+
+  const { version } = await fetchLatestBaileysVersion();
+  log.warn(
+    { e: zisteny?.error?.message || "neznáma chyba", verzia: version.join(".") },
+    "k WhatsAppu sa nedá dostať po verziu — beriem tú z knižnice; ak párovanie neprejde, vpíš WA_VERSION ručne",
+  );
+  return version;
 }
 
 async function spusti() {
   log.info({ bridgeId: BRIDGE_ID, api: API_BASE, authDir: AUTH_DIR }, "čítačka sa spúšťa");
   const { state, saveCreds } = await pripravAuth();
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await ktoruVerziu();
 
   const sock = makeWASocket({
     version,
@@ -250,15 +302,24 @@ async function spusti() {
       stopParovanie();
       const kod = lastDisconnect?.error?.output?.statusCode;
       const odhlasene = kod === DisconnectReason.loggedOut;
+      /* 515 nie je porucha. Presne toto pošle WhatsApp hneď po tom, ako sa
+         zariadenie podarilo prepojiť: spojenie zhodí a čaká, že sa čítačka
+         pripojí znova, už s novým prihlásením. Ideme rýchlo — keď sa otáľa,
+         WhatsApp prepojenie zruší a v telefóne to vyzerá ako neúspech. */
+      const poParovani = kod === DisconnectReason.restartRequired || kod === 515;
       log.warn(
         { kod },
         odhlasene
           ? PAIR_NUMBER
             ? "odhlásené — treba znova prepojiť párovacím kódom"
             : "odhlásené — treba znova naskenovať QR"
-          : "spojenie spadlo, skúšam znova",
+          : poParovani
+            ? "prepojené, WhatsApp žiada znovupripojenie — pripájam sa"
+            : "spojenie spadlo, skúšam znova",
       );
-      if (!odhlasene) setTimeout(() => spusti().catch((e) => log.error(e)), 5000);
+      if (!odhlasene) {
+        setTimeout(() => spusti().catch((e) => log.error(e)), poParovani ? 1500 : 5000);
+      }
     }
   });
 

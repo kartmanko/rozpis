@@ -25,6 +25,7 @@ obidve odhlásilo a musel by si znova skenovať QR.
 | `BRIDGE_ID` | `fly` alebo `nas` — iba na rozlíšenie v appke |
 | `AUTH_DIR` | priečinok na **trvalom** disku, kde sa drží prihlásenie |
 | `PAIR_NUMBER` | nepovinné: číslo eSIM, napr. `421901234567` — pozri nižšie |
+| `WA_VERSION` | nepovinné, núdzová brzda: verzia WhatsApp Webu, napr. `2.3000.1042466098` |
 
 `HOOK_SECRET` sa nikdy nepíše do súborov v repozitári.
 
@@ -49,6 +50,27 @@ Sú dve cesty a stačí jedna:
 
 Prihlásenie sa ukladá na trvalý disk (`AUTH_DIR`), takže sa robí **iba raz** —
 reštart ani nová verzia ho nezhodí.
+
+### Keď telefón povie „Nepodarilo sa prepojiť zariadenie"
+
+Kód sa vydá, ale prepojenie zlyhá. Sú na to tri príčiny a všetky sú ošetrené
+v `index.js`:
+
+1. **Zlá verzia WhatsApp Webu.** Knižnica má v sebe zapečenú verziu, ktorá už
+   býva stará, a WhatsApp s ňou prepojenie odmietne. Čítačka sa preto pýta
+   priamo WhatsAppu. Keby sa k nemu nedostala, napíše to do logov — vtedy
+   pomôže vpísať `WA_VERSION` ručne (aktuálne číslo je vidieť v zdrojáku
+   stránky web.whatsapp.com).
+2. **Vlastný názov prehliadača.** Pri párovaní kódom WhatsApp neprijme
+   vymyslený názov, takže sa čítačka hlási ako Ubuntu/Chrome. V telefóne sa
+   preto v zozname prepojených zariadení volá **Ubuntu**.
+3. **Nedokončený predošlý pokus.** Kľúče z pokusu, ktorý WhatsApp neschválil,
+   zhodia aj ten ďalší. Čítačka ich pri štarte zahodí — ale iba nedokončené,
+   hotového prihlásenia sa nedotkne.
+
+Kód platí necelé tri minúty. Keď ho nestihneš prepísať, čítačka si o chvíľu
+vypýta nový a vypíše ho do logov. Netreba nič reštartovať, stačí prepísať ten
+posledný.
 
 ## Fly.io (hlavná čítačka)
 
