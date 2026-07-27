@@ -112,8 +112,16 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
             sticky na table-header-group nefunguje spoľahlivo vo všetkých prehliadačoch. */}
         <thead ref={theadRef}>
           <tr>
+            {/* Stĺpec s dátumom ostáva prilepený vľavo aj pri rolovaní do strán.
+                Čiara vpravo je tam schválne — bez nej sa mená štábu pri rolovaní
+                „zalamovali“ tesne k dátumu a vyzeralo to ako rozbitá tabuľka. */}
+            {/* Čiara vpravo je samostatný prúžok, nie border ani tieň — v tabuľke so
+                zlúčenými okrajmi (border-collapse) prehliadač okraj ani tieň prilepenej
+                bunky nevykreslí. Bez tej čiary sa pri rolovaní do strán mená štábu
+                zarezávali tesne k dátumu a vyzeralo to ako rozsypaná tabuľka. */}
             <th className="sticky top-0 left-0 z-40 bg-f-bg border-b border-f-border2 px-2 py-2.5 text-left w-28 text-[10px] font-bold uppercase tracking-wider text-f-muted2">
               Deň
+              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-f-border2" />
             </th>
             {crew.map((c, i) => (
               <th
@@ -145,7 +153,9 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                 {newMonth && (
                   <tr className="sticky z-20" style={{ top: theadH }}>
                     <td colSpan={crew.length + 1} className="bg-f-panel border-b border-f-hair px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-f-faint">
-                      {SK_MONTHS[d.month]} 2026
+                      {/* Názov mesiaca drží pri ľavom okraji — inak by pri rolovaní
+                          do strán odišiel mimo obrazovky a z pásu ostal prázdny prúžok. */}
+                      <span className="sticky left-3.5 inline-block">{SK_MONTHS[d.month]} 2026</span>
                     </td>
                   </tr>
                 )}
@@ -159,12 +169,15 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                       onDayClick && onDayClick(d.iso);
                     }}
                     title={bulkMode && canEdit ? "Klik označí celý riadok (Shift/Ctrl = pridať k výberu)" : undefined}
-                    className={`sticky left-0 z-10 border-b border-f-hair px-2 h-8 font-mono text-[11px] whitespace-nowrap ${onDayClick || bulkMode ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"} ${isOpenDay ? "shadow-[inset_3px_0_0_0_#ff4d17]" : ""}`}
+                    className={`sticky left-0 z-10 border-b border-f-hair px-2 h-8 font-mono text-[11px] whitespace-nowrap ${onDayClick || bulkMode ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"}`}
                   >
+                    {/* oranžový prúžok vľavo = práve otvorený deň */}
+                    {isOpenDay && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-f-accent" />}
                     <span className={reh ? "text-f-reh" : isToday ? "text-f-a font-bold" : ci.fifth ? "text-f-r font-semibold" : "text-f-text/90"}>
                       {d.day}.{d.month + 1}. {d.dow}
                     </span>
                     <span className="ml-1 text-[9.5px] text-f-faint2">{reh ? "SKÚŠKY" : ci.n ? `${ci.n}/${ci.pos}` : ""}</span>
+                    <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-f-border2" />
                   </td>
                   {crew.map((c) => {
                     const x = cellOf(d.iso, c.id);
@@ -205,7 +218,10 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
         </tbody>
         <tfoot>
           <tr>
-            <td className="sticky left-0 bg-f-panel border-t border-f-border2 px-2 py-1.5 text-[10px] uppercase tracking-wide text-f-faint">Počet smien</td>
+            <td className="sticky left-0 bg-f-panel border-t border-f-border2 px-2 py-1.5 text-[10px] uppercase tracking-wide text-f-faint">
+              Počet smien
+              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-px bg-f-border2" />
+            </td>
             {crew.map((c) => {
               const n = Object.entries(cells).filter(([k, v]) => k.endsWith("|" + c.id) && v.shift).length;
               return <td key={c.id} className="bg-f-panel border-t border-f-border2 px-1 py-1.5 text-center font-mono text-xs text-f-muted">{n}</td>;
