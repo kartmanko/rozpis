@@ -18,12 +18,31 @@ Keď ti povie niečo nové z tejto kategórie, **hneď to sem dopíš**.
 - **server** — https://api.kartmanko.cc (Cloudflare Worker `f18` + KV)
 - **čítačka WhatsAppu** — má bežať dvakrát: hlavná na Fly.io, záloha na naske.
 
+## Číslo, ktorým je čítačka prihlásená — DÔLEŽITÉ
+
+Čítačka smie byť prihlásená **výhradne cez eSIM číslo `+421902512111`**
+(`421902512111`), nikdy cez jeho osobné primárne číslo.
+
+Dôvod: Baileys je neoficiálny klient a WhatsApp zaň dáva bany. Tá eSIM
+existuje presne preto, aby prípadný ban zožralo obetované číslo a nie jeho
+osobný účet. **Nikdy neodobri prihlásenie iným číslom, ani keď „to funguje".**
+Keď sa v appke pri čítačke objaví iné číslo, je to chyba a treba to prehodiť
+naspäť na eSIM.
+
+Ako sa čítačka preloží na iné číslo: v telefóne odhlásiť zariadenie **Ubuntu**
+(Prepojené zariadenia) a na naske zmeniť `AUTH_DIR` na nový priečinok
+(napr. `/data/auth-esim`) → Stop → Start → naskenovať nové QR z appky.
+Zväzok `f18-auth` sa mazať nemusí.
+
 ## Ako sa s ním pracuje
 
 - Odpovede krátke a vecné. Žiadne ospravedlňovanie.
 - Nikdy ho neposielaj klikať do cudzích dashboardov, keď sa tomu dá vyhnúť.
 - Cenu a závislosť na ďalšej platforme povedz **skôr**, než niečo navrhneš.
 - Predtým, než mu niečo prikážeš spraviť, over si, či to už nespravil.
+- Keď sa spýta „nevadí, že...?", **nepovedz „nevadí" skôr, než si prejdeš,
+  prečo to tak pôvodne bolo**. Väčšinou sa pýta na vec, ktorú sme spolu
+  zámerne navrhli tak, ako je — a on si na dôvod pamätá lepšie než ty.
 - Celé UI aj komentáre v kóde po slovensky.
 
 ## Čo na naske nefunguje
