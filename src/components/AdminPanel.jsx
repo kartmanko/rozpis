@@ -34,11 +34,19 @@ export default function AdminPanel({ me, onLogout, onClose }) {
     setPracuje(true);
     setHlaska("");
     const zapnute = push?.stav === "zapnute";
-    const v = zapnute ? await vypniUpozornenia() : await zapniUpozornenia();
-    if (!v.ok) setHlaska(v.chyba || "Nepodarilo sa to.");
-    else setHlaska(zapnute ? "Upozornenia vypnuté." : "Hotovo — upozornenia sú zapnuté.");
-    await obnovStav();
-    setPracuje(false);
+    /* Keby sa tlačidlo pokazilo, nesmie ostať navždy zašednuté — preto finally.
+       Prehliadač vie zo schránky na upozornenia vyhodiť chybu aj mimo try
+       v push.js (napr. keď je service worker v divnom stave). */
+    try {
+      const v = zapnute ? await vypniUpozornenia() : await zapniUpozornenia();
+      if (!v.ok) setHlaska(v.chyba || "Nepodarilo sa to.");
+      else setHlaska(zapnute ? "Upozornenia vypnuté." : "Hotovo — upozornenia sú zapnuté.");
+      await obnovStav();
+    } catch (e) {
+      setHlaska("Nepodarilo sa to: " + ((e && e.message) || "neznáma chyba"));
+    } finally {
+      setPracuje(false);
+    }
   };
 
   const skuska = async () => {

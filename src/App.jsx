@@ -268,7 +268,14 @@ export default function App() {
       setConflict(false);
       setDirty(false);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 0) {
+      if (e instanceof ApiError && e.status === 401) {
+        /* Session vypršala. Ukladanie na to reaguje rovnako — inak by tu človek
+           ostal sedieť nad starými dátami a klikal do rozpisu, ktorý sa už
+           nemá kam uložiť. */
+        setMe(null);
+        setAuthError("Prihlásenie vypršalo, prihlás sa znova.");
+        setConnError("");
+      } else if (e instanceof ApiError && e.status === 0 && !e.siet) {
         setConnError("Backend nie je nastavený — otvor Admin (cez ⋯) a zadaj adresu Cloudflare Workera.");
       } else {
         setConnError("Nepodarilo sa načítať dáta zo servera: " + e.message);

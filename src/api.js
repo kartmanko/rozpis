@@ -55,20 +55,32 @@ function adminHeader() {
 }
 
 class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, siet = false) {
     super(message);
     this.status = status;
+    /* true = k serveru sa to ani nedostalo (mŕtvy signál, vypnutý server).
+       Rozlišujeme to preto, že to nie je chyba appky a nemá zmysel nikoho
+       odhlasovať ani nič zahadzovať — stačí to počkať a skúsiť znova. */
+    this.siet = siet;
   }
 }
 
 async function request(path, opts = {}) {
   const base = getApiBase();
   if (!base) throw new ApiError("Backend (Cloudflare Worker) nie je nastavený.", 0);
-  const res = await fetch(base + path, {
-    credentials: "include",
-    ...opts,
-    headers: { ...adminHeader(), ...(opts.headers || {}) },
-  });
+  /* Keď padne samotné spojenie, prehliadač vyhodí holé „Failed to fetch" —
+     po anglicky a bez toho, aby to čokoľvek vysvetlilo. Prepíšeme to, nech
+     človek vidí, že je to signál, a nie pokazená appka. */
+  let res;
+  try {
+    res = await fetch(base + path, {
+      credentials: "include",
+      ...opts,
+      headers: { ...adminHeader(), ...(opts.headers || {}) },
+    });
+  } catch {
+    throw new ApiError("Server neodpovedá — skontroluj pripojenie. Appka to skúsi znova.", 0, true);
+  }
   if (!res.ok) {
     let msg = `Chyba servera (${res.status})`;
     try {
