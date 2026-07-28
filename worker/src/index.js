@@ -42,6 +42,9 @@ import {
   handleGetUsers,
   handlePostUsers,
   readUsers,
+  rovnakeTajomstvo,
+  logJeIbaDoplneny,
+  LOG_MAX,
 } from "./auth.js";
 import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
 import { sKesou, kesovane, prepisKes } from "./kes.js";
@@ -70,6 +73,10 @@ const MAX_REPORTOV = 1000;
 // Nepotvrdených dispo mailov by sa nemalo nahromadiť veľa. Keď ich je toľko,
 // niečo je zle a nemá zmysel držať ďalšie.
 const MAX_PENDING_DISPO = 60;
+
+// Smeny dňa. Musia sedieť s DAY_SHIFTS v src/constants.js — server podľa toho
+// zahadzuje smeny, ktoré neexistujú.
+const DAY_SHIFTS = ["A", "B", "C", "R"];
 
 /* ---------- WhatsApp bridge (Fáza 3) ----------
    Bridge je čítačka WhatsAppu, ktorá beží mimo Cloudflare (Fly.io, prípadne aj naska
@@ -201,14 +208,8 @@ async function bridgeToken(env, vyrobNovy = false) {
   return kod;
 }
 
-/* Porovnanie v konštantnom čase — pri tajomstvách sa neoplatí dávať útočníkovi
-   do rúk ani to, ako ďaleko sa jeho tip zhoduje. */
-function rovnakeTajomstvo(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-  let rozdiel = 0;
-  for (let i = 0; i < a.length; i++) rozdiel |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return rozdiel === 0;
-}
+/* rovnakeTajomstvo (porovnanie v konštantnom čase) je v auth.js — používa ho
+   aj kontrola núdzového admin hesla, tak nech je na jednom mieste. */
 
 async function checkHookSecret(request, env) {
   const s = request.headers.get("X-Hook-Secret") || "";
@@ -252,6 +253,39 @@ async function handleGetVersion(env) {
   return json({ version: state.version }, 200, env);
 }
 
+/* ---------- stropy na to, čo príde zvonku ----------
+
+   Appka posiela celý rozpis naraz, takže telo požiadavky je jediné miesto,
+   kadiaľ sa dá do KV nasypať čokoľvek. Cloudflare KV zoberie hodnotu najviac
+   25 MB; keby sa raz taká uložila, rozpis by sa už nedal zapísať vôbec. Preto
+   sú tu stropy — sú schválne oveľa nižšie, než čo znesie KV, aby bolo z čoho
+   ubrať, a zároveň rádovo vyššie, než čo potrebuje najväčší štáb. */
+const MAX_STAV_ZNAKOV = 2_000_000; // uložený rozpis, ~2 MB
+const MAX_OBRAZOK_ZNAKOV = 6_000_000; // screenshot pre /parse (base64), ~4,5 MB obrázok
+const MAX_CHATOV = 300; // koľko WhatsApp skupín si server pamätá
+const MAX_POZNAMKA = 300; // dĺžka poznámky v bunke rozpisu
+
+/* Bunka rozpisu smie mať iba tieto polia. Predtým sa ukladalo, čo prišlo —
+   a keďže kontrola práv porovnáva iba tieto polia, ktokoľvek prihlásený mohol
+   do „svojej" bunky prilepiť megabajt smetí a server si to uložil bez mihnutia.
+   Pozor: keď do bunky pribudne nové pole, musí sa doplniť sem aj do normCell
+   v auth.js — inak sa buď stratí, alebo prekĺzne bez kontroly práv. */
+function ocistiBunky(cells) {
+  const out = {};
+  for (const [k, c] of Object.entries(cells)) {
+    if (!c || typeof c !== "object") continue;
+    const nadcas = Number(c.nadcas);
+    out[String(k).slice(0, 120)] = {
+      off: !!c.off,
+      shift: DAY_SHIFTS.includes(c.shift) ? c.shift : null,
+      duel: !!c.duel,
+      note: String(c.note || "").slice(0, MAX_POZNAMKA),
+      nadcas: Number.isFinite(nadcas) ? Math.min(24, Math.max(0, Math.round(nadcas * 10) / 10)) : 0,
+    };
+  }
+  return out;
+}
+
 async function handlePostData(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
@@ -268,14 +302,14 @@ async function handlePostData(request, env) {
 
   const next = {
     crew: Array.isArray(body.crew) ? body.crew : current.crew,
-    cells: body.cells && typeof body.cells === "object" ? body.cells : current.cells,
+    cells: body.cells && typeof body.cells === "object" ? ocistiBunky(body.cells) : current.cells,
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
     sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
     chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
     reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
     dispo: body.dispo && typeof body.dispo === "object" ? body.dispo : current.dispo,
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
-    log: Array.isArray(body.log) ? body.log.slice(0, 400) : current.log,
+    log: Array.isArray(body.log) ? body.log.slice(0, LOG_MAX) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
   };
@@ -290,6 +324,22 @@ async function handlePostData(request, env) {
   if (baseVersion !== current.version) {
     // niekto iný medzitým uložil novšiu verziu
     return json({ error: "conflict", current }, 409, env);
+  }
+
+  /* História sa smie iba dopĺňať — nikdy prepisovať. Kontroluje sa až tu, keď
+     už vieme, že klient vychádzal z aktuálnej verzie, takže "current.log" je
+     presne to, čo si načítal. Platí to aj pre admina, viď auth.js. */
+  if (!logJeIbaDoplneny(current.log, next.log)) {
+    return json({ error: "Históriu sa nedá prepísať ani vymazať — dá sa do nej iba dopĺňať." }, 403, env);
+  }
+
+  /* Strop na veľkosť uloženého stavu. Bez neho stačí jedno uloženie s dlhým
+     textom v mene alebo v poznámke a stav prestane byť zapísateľný — Cloudflare
+     KV berie hodnotu najviac 25 MB a od tej chvíle by sa neuložilo už nič.
+     Radšej odmietnuť jedno uloženie ako zabetónovať celý rozpis. */
+  const velkost = JSON.stringify(next).length;
+  if (velkost > MAX_STAV_ZNAKOV) {
+    return json({ error: "Príliš veľká zmena — server ju neuložil. Skús to po častiach." }, 413, env);
   }
 
   await writeState(env, next);
@@ -390,7 +440,6 @@ async function handlePostParse(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
   if (!roleCaps(user.role).pending) return json({ error: "Na import screenshotov nemáš právo." }, 403, env);
-  if (!env.ANTHROPIC_API_KEY) return json({ error: "Vision API kľúč nie je nastavený na serveri." }, 500, env);
 
   let body;
   try {
@@ -401,6 +450,17 @@ async function handlePostParse(request, env) {
 
   const { image, mediaType, month } = body;
   if (!image) return json({ error: "Chýba obrázok." }, 400, env);
+
+  /* Toto je jediný endpoint, ktorý stojí peniaze — každé volanie je platba
+     Anthropicu. Preto sa veľkosť aj typ obrázka kontrolujú EŠTE PREDTÝM, než sa
+     čokoľvek pošle von, a skôr než sa vôbec pozrieme na kľúč. */
+  if (String(image).length > MAX_OBRAZOK_ZNAKOV) {
+    return json({ error: "Screenshot je príliš veľký. Zmenši ho alebo pošli po častiach." }, 413, env);
+  }
+  const POVOLENE_TYPY = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+  const typObrazka = POVOLENE_TYPY.includes(mediaType) ? mediaType : "image/png";
+
+  if (!env.ANTHROPIC_API_KEY) return json({ error: "Vision API kľúč nie je nastavený na serveri." }, 500, env);
 
   const monthNum = Number(month) || 8;
   const prompt = VISION_PROMPT_TEMPLATE(monthNum, SK_MONTHS[monthNum - 1]);
@@ -421,7 +481,7 @@ async function handlePostParse(request, env) {
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: mediaType || "image/png", data: image } },
+            { type: "image", source: { type: "base64", media_type: typObrazka, data: image } },
             { type: "text", text: prompt },
           ],
         },
@@ -431,7 +491,8 @@ async function handlePostParse(request, env) {
 
   if (!resp.ok) {
     const errText = await resp.text();
-    return json({ error: "Vision API zlyhalo: " + errText.slice(0, 300) }, 502, env);
+    console.log("Vision API zlyhalo:", errText.slice(0, 500));
+    return json({ error: "Vision API zlyhalo: " + bezTajomstiev(errText.slice(0, 300)) }, 502, env);
   }
 
   const data = await resp.json();
@@ -508,6 +569,10 @@ async function handlePostHook(request, env) {
     const zaznam = chaty[chatId];
     const menoChatu = String(chatName || "").slice(0, 120);
 
+    if (chatId && !zaznam && Object.keys(chaty).length >= MAX_CHATOV) {
+      // rovnaký strop ako pri ohlásení čítačky — zoznam skupín nesmie rásť donekonečna
+      return json({ ignored: true, reason: "zoznam skupín je plný" }, 200, env);
+    }
     if (chatId && !zaznam) {
       chaty[chatId] = {
         id: chatId,
@@ -719,6 +784,12 @@ async function handleBridgePing(request, env) {
       if (!id) continue;
       const nazov = String(s?.nazov || "").slice(0, 120) || "(bez názvu)";
       if (!chaty[id]) {
+        /* Zoznam skupín má strop. Bez neho by pokazená (alebo podvrhnutá)
+           čítačka vedela každou minútou pridať ďalšie stovky skupín a stav by
+           rástol, kým sa doňho dá zapísať. Nové skupiny sa vtedy jednoducho
+           ignorujú — zapnuté sledovanie beží ďalej a admin vie zoznam
+           prečistiť tlačidlom „Zabudni skupiny". */
+        if (Object.keys(chaty).length >= MAX_CHATOV) continue;
         chaty[id] = { id, nazov, povoleny: false, prvyKrat: new Date().toISOString(), poslednaSprava: "" };
         zmena = true;
       } else if (chaty[id].nazov !== nazov) {
@@ -1189,9 +1260,19 @@ async function upozorniNaDispo(env, navrh) {
    Najčastejšia príčina je vyčerpaný denný strop Cloudflare KV (zadarmo 1000
    zápisov denne). KV vtedy vyhodí chybu s 429 a appka to má povedať rovno,
    nie mlčať. Strop sa vracia o polnoci UTC. */
+/* Chybové hlášky chodia až do prehliadača, takže sa v nich nesmie ocitnúť nič,
+   čím sa dá server otvoriť. Texty od Anthropicu alebo Resendu vedia zopakovať
+   kus kľúča, ktorý im prišiel — preto sa všetko, čo vyzerá ako kľúč alebo token,
+   pred odoslaním prepíše. Do logu (wrangler tail) ide celý text nedotknutý. */
+function bezTajomstiev(text) {
+  return String(text)
+    .replace(/\b(sk-[A-Za-z0-9_-]{8,}|re_[A-Za-z0-9_-]{8,})/g, "[kľúč]")
+    .replace(/\b[0-9a-f]{24,}\b/gi, "[kód]");
+}
+
 function chybaOdpoved(e, env) {
-  const text = String((e && e.message) || e || "");
-  console.log("požiadavka spadla:", text);
+  const text = bezTajomstiev(String((e && e.message) || e || ""));
+  console.log("požiadavka spadla:", String((e && e.message) || e || ""));
   if (/429|rate limit|exceeded/i.test(text)) {
     return json({
       error: "Cloudflare KV minulo denný limit zápisov. Uložiť sa dá až po polnoci UTC.",

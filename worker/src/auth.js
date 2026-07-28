@@ -70,6 +70,17 @@ const RATE_MAX = 6; // najviac 6 odkazov na e-mail za hodinu
 
 export const normEmail = (s) => String(s || "").trim().toLowerCase();
 
+/* Porovnanie tajomstiev v konštantnom čase — pri hesle a pri kóde pre čítačku
+   sa neoplatí dávať útočníkovi do rúk ani to, ako ďaleko sa jeho tip zhoduje.
+   Bežné === skončí pri prvom rozdielnom znaku a ten rozdiel v čase sa dá
+   odmerať a heslo si tak uhádnuť znak po znaku. */
+export function rovnakeTajomstvo(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let rozdiel = 0;
+  for (let i = 0; i < a.length; i++) rozdiel |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return rozdiel === 0;
+}
+
 async function sha256hex(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -180,7 +191,7 @@ export async function readAuthLog(env) {
  */
 export async function getSessionUser(request, env) {
   const pw = request.headers.get("X-Admin-Password") || "";
-  if (env.ADMIN_PASSWORD && pw === env.ADMIN_PASSWORD) {
+  if (env.ADMIN_PASSWORD && rovnakeTajomstvo(pw, env.ADMIN_PASSWORD)) {
     return { id: "break_glass", email: "", name: "Núdzový admin", role: "admin", crewId: null, active: true, breakGlass: true };
   }
 
@@ -467,6 +478,52 @@ function changedPlain(a, b) {
     if (JSON.stringify((a || {})[k] ?? null) !== JSON.stringify((b || {})[k] ?? null)) out.push(k);
   }
   return out;
+}
+
+/* ---------- história sa smie iba dopĺňať ----------
+
+   Príbeh: appka posiela pri každom uložení celý stav vrátane histórie (log).
+   Server ju predtým bral tak, ako prišla — takže ktokoľvek prihlásený, aj
+   obyčajný divák, mohol jedným uložením celú históriu vymazať alebo do nej
+   dopísať, že niečo spravil niekto iný. História, ktorá sa dá potichu prepísať,
+   nie je história; a celá appka stojí na tom, že po každej zmene ostane stopa.
+
+   Preto sa nová história porovná so starou: staré záznamy musia ostať presne
+   také, aké boli, a pribudnúť smú iba nové na začiatku. Platí to aj pre admina —
+   nie preto, že by sme mu neverili, ale preto, že keby to obišiel admin, nemá
+   zmysel to kontrolovať nikomu.
+
+   Jediné, čo smie zo starých záznamov zmiznúť, je koniec zoznamu, keď sa dosiahne
+   strop — vtedy nové záznamy staré vytláčajú, jeden za jeden. */
+export const LOG_MAX = 400;
+/* Koľko riadkov smie pribudnúť jedným uložením. Nie je to náhodné číslo:
+   hromadný import tabuľky zapíše jeden riadok na každého človeka v štábe, takže
+   to musí prejsť aj pri veľkom štábe. Zároveň to bráni tomu, aby niekto jedným
+   uložením vytlačil celú starú históriu von. */
+const LOG_NARAZ = 100;
+
+export function logJeIbaDoplneny(stary, novy) {
+  const s = (Array.isArray(stary) ? stary : []).map((x) => JSON.stringify(x));
+  const n = (Array.isArray(novy) ? novy : []).map((x) => JSON.stringify(x));
+  if (n.length > LOG_MAX) return false;
+
+  /* Koľko riadkov na začiatku je nových: hľadáme najmenšie p, pri ktorom zvyšok
+     nového zoznamu sedí na začiatok toho starého. Rovno od nuly, nech sa
+     útočník nemôže schovať za väčšie p. */
+  for (let p = 0; p <= n.length && p <= LOG_NARAZ; p++) {
+    const kolkoOstalo = n.length - p;
+    if (kolkoOstalo > s.length) continue;
+    let sedi = true;
+    for (let i = 0; i < kolkoOstalo; i++) {
+      if (n[p + i] !== s[i]) { sedi = false; break; }
+    }
+    if (!sedi) continue;
+    // koľko starých riadkov vypadlo z konca — smie to byť iba vytlačenie stropom
+    const vypadlo = s.length - kolkoOstalo;
+    if (vypadlo === 0) return true;
+    return s.length + p > LOG_MAX && vypadlo === s.length + p - LOG_MAX;
+  }
+  return false;
 }
 
 /**
