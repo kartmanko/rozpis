@@ -30,7 +30,8 @@ import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
-import { skusZlucit } from "./zlucenie";
+import { skusZlucit, zmeneneKluce } from "./zlucenie";
+import { ulozNeulozene, nacitajNeulozene, zahodNeulozene } from "./neulozene";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 // "nadcas" = nahlásené hodiny nadčasu k tomuto dňu (Fáza 2).
@@ -238,6 +239,16 @@ export default function App() {
   // poistka proti donekonečna sa opakujúcemu skladaniu, keď je server pod náporom
   const pokusyOZlucenie = useRef(0);
 
+  /* Opakovanie zápisu, keď vypadne signál. Ukladanie sa spúšťa zmenou stavu,
+     takže keď zlyhá a človek už nič neklikne, samo od seba by sa to nikdy
+     neskúsilo — appka by sa len tvárila, že to skúsi. Preto si tu držíme
+     počítadlo, ktorého zvýšenie ukladanie znova naštartuje. */
+  const [zapisPokus, setZapisPokus] = useState(0);
+  const opakovanieTimer = useRef(null);
+  const pokusyOZapis = useRef(0);
+  // odložený stav z minula, ktorý sa ponúka obnoviť (appka navrhne, človek potvrdí)
+  const [odlozene, setOdlozene] = useState(null);
+
   const load = useCallback(async () => {
     // nová sada dát zo servera/dema nie je "úprava" — zásobník späť/znova sa začína odznova
     undoStackRef.current = [];
@@ -374,9 +385,14 @@ export default function App() {
         setVersion(res.version);
         zakladRef.current = odoslane;
         pokusyOZlucenie.current = 0;
+        pokusyOZapis.current = 0;
+        zahodNeulozene();
         setDirty(false);
         setStatus("Uložené na server.");
       } catch (e) {
+        /* Čokoľvek, čo sa nepodarilo uložiť, si odložíme do prehliadača. Keby
+           človek appku zavrel, po otvorení sa mu to ponúkne obnoviť. */
+        ulozNeulozene(me?.email, zakladRef.current, odoslane);
         if (e instanceof ApiError && e.status === 409) {
           /* Niekto uložil skôr. Kým sme sa nedotkli tej istej bunky, nie je to
              ozajstný spor — appka vezme jeho stav a dopíše doň ten svoj. Ak sa
@@ -417,6 +433,15 @@ export default function App() {
           setMe(null);
           setAuthError("Prihlásenie vypršalo, prihlás sa znova.");
           setStatus("");
+        } else if ((e instanceof ApiError && e.siet) || e.status >= 500) {
+          /* Signál vypadol alebo je server chvíľu mimo. Nie je to chyba človeka
+             ani appky — stačí to o chvíľu skúsiť znova. Odstupy sa predlžujú,
+             nech sa server pri výpadku nezasype opakovanými pokusmi. */
+          pokusyOZapis.current += 1;
+          const odstup = Math.min(30000, 3000 * 2 ** (pokusyOZapis.current - 1));
+          setStatus(`Bez spojenia — neuložené. Skúsim znova o ${Math.round(odstup / 1000)} s.`);
+          clearTimeout(opakovanieTimer.current);
+          opakovanieTimer.current = setTimeout(() => setZapisPokus((v) => v + 1), odstup);
         } else {
           setStatus("Uloženie zlyhalo: " + e.message);
         }
@@ -425,7 +450,22 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, zapisPokus]);
+
+  /* Keď telefónu nabehne signál, nečaká sa na ďalší odstup — skúsi sa hneď.
+     Toto je ten bežný prípad: človek vyjde spoza stodoly a zmena má odletieť. */
+  useEffect(() => {
+    const nasignal = () => {
+      clearTimeout(opakovanieTimer.current);
+      pokusyOZapis.current = 0;
+      setZapisPokus((v) => v + 1);
+    };
+    window.addEventListener("online", nasignal);
+    return () => {
+      window.removeEventListener("online", nasignal);
+      clearTimeout(opakovanieTimer.current);
+    };
+  }, []);
 
   const addLog = useCallback((text) => {
     setLog((l) => [{ t: new Date().toISOString(), text }, ...l].slice(0, 400));
@@ -1019,6 +1059,46 @@ export default function App() {
     await load();
   };
 
+  /* --- zmeny, ktoré sa minule nepodarilo uložiť (slabý signál) --- */
+
+  /* Ponúknu sa až po načítaní zo servera — až vtedy je s čím ich porovnať.
+     Neobnovujú sa samy: rozpis medzitým mohol meniť niekto iný a ticho ho
+     prepísať starou kópiou z vrecka je presne to, čo tu nesmie nastať. */
+  useEffect(() => {
+    if (!loaded || !me || dirty) return;
+    const v = nacitajNeulozene(me.email);
+    if (v) setOdlozene(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, me]);
+
+  const odlozenychZmien = useMemo(
+    () => (odlozene ? zmeneneKluce(odlozene.zaklad?.cells, odlozene.stav?.cells).length : 0),
+    [odlozene]
+  );
+
+  const obnovOdlozene = useCallback(() => {
+    if (!odlozene) return;
+    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log };
+    /* Skladá sa tým istým pravidlom ako pri strete dvoch ľudí naraz: dopíšu sa
+       iba moje bunky, cudzie ostanú tak, ako sú. Ak sa to prekrýva, radšej nič. */
+    const zlucene = skusZlucit(odlozene.zaklad, odlozene.stav, teraz);
+    if (!zlucene) {
+      setStatus("Odložené zmeny sa už vrátiť nedajú — rozpis sa medzitým zmenil. Nastav ich, prosím, znova.");
+      return;
+    }
+    setCells(zlucene.cells);
+    setLog(zlucene.log);
+    setDirty(true);
+    setOdlozene(null);
+    setStatus("Odložené zmeny vrátené — ukladám.");
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log]);
+
+  const zahodOdlozene = useCallback(() => {
+    zahodNeulozene();
+    setOdlozene(null);
+    setStatus("Odložené zmeny zahodené.");
+  }, []);
+
   const bulkAllowsDuel = useMemo(() => {
     if (!selectedKeys.size) return true;
     return [...selectedKeys].every((k) => {
@@ -1184,6 +1264,25 @@ export default function App() {
             {saving && <span className="text-f-r">Ukladám…</span>}
             {status && <span className="text-f-muted">{status}</span>}
             {connError && <span className="text-f-r">{connError}</span>}
+          </div>
+        )}
+        {odlozene && odlozenychZmien > 0 && (
+          /* Rovnaké rozloženie ako pri strete verzií — text zvlášť, tlačidlá zvlášť,
+             nech sa to na mobilnom Safari neprelomí cez seba. */
+          <div className="mt-2 p-2 rounded-lg bg-f-accent/10 border border-f-accent/50 text-xs text-f-text">
+            <div>
+              Máš {odlozenychZmien}× neuloženú zmenu z{" "}
+              {new Date(odlozene.ked).toLocaleString("sk-SK", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}
+              {" "}— vtedy nebol signál.
+            </div>
+            <div className="mt-1.5 flex gap-2">
+              <button onClick={obnovOdlozene} className="px-2 py-0.5 rounded-lg bg-f-accent text-f-ink font-bold">
+                Obnoviť zmeny
+              </button>
+              <button onClick={zahodOdlozene} className="px-2 py-0.5 rounded-lg bg-f-panel3 text-f-muted">
+                Zahodiť
+              </button>
+            </div>
           </div>
         )}
         {conflict && (
