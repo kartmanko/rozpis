@@ -28,7 +28,7 @@ import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
-import { sadzbaProfesie, DEFAULT_SADZBY } from "./vykazy";
+import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
@@ -424,7 +424,7 @@ export default function App() {
   }, []);
 
   const setCell = useCallback(
-    (iso, cid, patch) => {
+    (iso, cid, patch, logMsg) => {
       commitCells((prev) => {
         const k = iso + "|" + cid;
         const cur = prev[k] || emptyCell;
@@ -433,7 +433,7 @@ export default function App() {
         const out = { ...prev };
         if (empty) delete out[k]; else out[k] = next;
         return out;
-      });
+      }, logMsg);
     },
     [commitCells]
   );
@@ -733,6 +733,48 @@ export default function App() {
     (crewId) => cellAccess(me, crew.find((c) => c.id === crewId)),
     [me, crew]
   );
+
+  /* Keď si člen štábu sám preklikne vlastnú bunku, musí to byť vidieť v Histórii.
+     Admin sa o tom inak dozvie iba tak, že si náhodou všimne inú farbu — a to je
+     presne tá „ticho prepísaná“ zmena, ktorú tu nechceme. Zmeny, ktoré robí
+     vedúci alebo admin, sa nelogujú: robí ich ten istý človek, čo Históriu číta,
+     a má na ne krok späť. */
+  const popisVlastnejZmeny = useCallback(
+    (iso, cid, patch) => {
+      if (accessFor(cid) !== "off") return null;
+      if (!("off" in patch)) return null;
+      const meno = crew.find((c) => c.id === cid)?.name || "Štáb";
+      return `${meno} sám: ${skDate(iso)} — ${patch.off ? "nemôže" : "zrušil „nemôžem“"}`;
+    },
+    [accessFor, crew]
+  );
+
+  /* Nadčas sa v editore prepína po pol hodine, takže by pri každom kliknutí
+     pribudol jeden riadok Histórie. Preto si pri otvorení vlastnej bunky
+     zapamätáme, koľko tam nadčasu bolo, a zapíšeme až výsledok — vtedy, keď
+     človek editor zavrie. */
+  const nadcasPriOtvoreniRef = useRef(null);
+  useEffect(() => {
+    const predch = nadcasPriOtvoreniRef.current;
+    if (predch && (!sel || sel.iso !== predch.iso || sel.crewId !== predch.crewId)) {
+      const teraz = hodinyNadcasu(cellOf(predch.iso, predch.crewId));
+      if (teraz !== predch.hodiny) {
+        addLog(`${predch.meno} sám: ${skDate(predch.iso)} — ${teraz ? `nahlásený nadčas ${hod(teraz)}` : "nadčas zrušený"}`);
+      }
+      nadcasPriOtvoreniRef.current = null;
+    }
+    if (sel && !nadcasPriOtvoreniRef.current && accessFor(sel.crewId) === "off") {
+      nadcasPriOtvoreniRef.current = {
+        iso: sel.iso,
+        crewId: sel.crewId,
+        meno: crew.find((c) => c.id === sel.crewId)?.name || "Štáb",
+        hodiny: hodinyNadcasu(cellOf(sel.iso, sel.crewId)),
+      };
+    }
+    // schválne iba [sel] — efekt nás zaujíma pri otvorení a zatvorení editora,
+    // nie pri každom preklikaní hodín vnútri neho
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
 
   /* Ľudia, ktorých rozpis smie prihlásený meniť celý — import tabuľky sa drží
      v týchto medziach rovnako ako klikanie do tabuľky. */
@@ -1210,7 +1252,7 @@ export default function App() {
           skDate={skDate}
           access={accessFor(sel.crewId)}
           sadzba={sadzbaProfesie(sadzby, crew.find((c) => c.id === sel.crewId)?.role || "kamera")}
-          onSet={(patch) => setCell(sel.iso, sel.crewId, patch)}
+          onSet={(patch) => setCell(sel.iso, sel.crewId, patch, popisVlastnejZmeny(sel.iso, sel.crewId, patch))}
           onSwap={(otherId) => { swap(sel.iso, sel.crewId, otherId); setSel(null); }}
           onClose={() => setSel(null)}
         />
