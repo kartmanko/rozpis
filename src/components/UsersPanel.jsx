@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchUsers, saveUsers } from "../api";
 import { USER_ROLES } from "../permissions";
+import { kontrolaPristupov } from "../kontrolaPristupov";
 
 /* Správa prístupov — kto sa smie prihlásiť, akú má rolu a ku ktorému človeku
    v rozpise patrí. Vidí to iba hlavný admin. */
@@ -43,6 +44,11 @@ export default function UsersPanel({ crew, onClose }) {
     setErr("");
   };
 
+  /* Prekontroluje sa to, čo je práve na obrazovke — teda aj neuložené zmeny.
+     Admin tak vidí problém hneď, ako ho vyrobí, nie až keď sa niekto neprihlási. */
+  const problemy = useMemo(() => kontrolaPristupov(users, crew), [users, crew]);
+  const chyby = problemy.filter((p) => p.druh === "chyba");
+
   const save = async () => {
     setBusy(true);
     setErr("");
@@ -69,6 +75,21 @@ export default function UsersPanel({ crew, onClose }) {
         Kto tu nie je, nedostane prihlasovací odkaz a do rozpisu sa nedostane. „Patrí k“ prepojí
         človeka s jeho stĺpcom v rozpise — bez toho si štáb nevie označiť vlastnú nedostupnosť.
       </p>
+
+      {!busy && problemy.length > 0 && (
+        <div className="mb-3 p-2.5 rounded-lg bg-f-panel2 border border-f-border" data-kontrola-pristupov>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-f-faint mb-1.5">
+            {chyby.length ? `Toto treba dorobiť (${chyby.length})` : "Ešte sa pozri na toto"}
+          </div>
+          <div className="flex flex-col gap-1">
+            {problemy.map((p, i) => (
+              <div key={i} className={`text-xs leading-relaxed ${p.druh === "chyba" ? "text-f-r" : "text-f-accent"}`}>
+                {p.druh === "chyba" ? "✕" : "!"} {p.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 mb-3">
         <input
