@@ -855,6 +855,19 @@ export default function App() {
         return;
       }
 
+      /* Escape zatvára to, čo je práve navrchu — najprv editor bunky, potom detail
+         dňa, potom rozbalené menu a nakoniec otvorený panel. Bez toho sa dalo
+         zavrieť iba myšou (klik do tmavého okolia alebo na „Zavrieť“), čo je na
+         počítači zbytočné otravné. Kým človek píše do políčka, Escape sa sem
+         nedostane (viď isTypingTarget vyššie) — nech sa nestratí rozpísaná
+         poznámka. */
+      if (e.key === "Escape") {
+        if (sel) { setSel(null); return; }
+        if (dayDetailIso) { setDayDetailIso(null); return; }
+        if (menu) { setMenu(null); return; }
+        if (panel) { setPanel(null); return; }
+      }
+
       if (!bulkMode || !canEdit) return;
 
       if (e.key === "Escape") {
@@ -903,7 +916,7 @@ export default function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulkMode, canEdit, selectedKeys, filteredDays, filteredCrew, applyBulk, undoCells, redoCells]);
+  }, [bulkMode, canEdit, selectedKeys, filteredDays, filteredCrew, applyBulk, undoCells, redoCells, sel, dayDetailIso, menu, panel]);
 
   const resolveConflict = async () => {
     await load();
