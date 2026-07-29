@@ -55,9 +55,13 @@ function adminHeader() {
 }
 
 class ApiError extends Error {
-  constructor(message, status, siet = false) {
+  constructor(message, status, siet = false, telo = null) {
     super(message);
     this.status = status;
+    /* Telo odpovede, ak nejaké prišlo. Pri strete verzií (409) je v ňom pod
+       „current“ celý aktuálny stav zo servera — appka si z neho vie poskladať
+       zlúčenie a nemusí si preň chodiť druhýkrát. */
+    this.telo = telo;
     /* true = k serveru sa to ani nedostalo (mŕtvy signál, vypnutý server).
        Rozlišujeme to preto, že to nie je chyba appky a nemá zmysel nikoho
        odhlasovať ani nič zahadzovať — stačí to počkať a skúsiť znova. */
@@ -83,13 +87,14 @@ async function request(path, opts = {}) {
   }
   if (!res.ok) {
     let msg = `Chyba servera (${res.status})`;
+    let telo = null;
     try {
-      const j = await res.json();
-      if (j?.error) msg = j.error;
+      telo = await res.json();
+      if (telo?.error) msg = telo.error;
     } catch {
       /* telo nie je JSON */
     }
-    throw new ApiError(msg, res.status);
+    throw new ApiError(msg, res.status, false, telo);
   }
   return res.json();
 }

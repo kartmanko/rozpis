@@ -30,6 +30,7 @@ import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
+import { skusZlucit } from "./zlucenie";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
 // "nadcas" = nahlásené hodiny nadčasu k tomuto dňu (Fáza 2).
@@ -230,6 +231,13 @@ export default function App() {
   };
 
   /* --- načítanie zo servera (Krok 1: bez nastaveného Workera appka beží čisto na lokálnych ukážkových dátach) --- */
+  /* Stav, z ktorého vychádzame — posledné načítanie alebo posledné úspešné
+     uloženie. Podľa neho sa pri strete verzií pozná, ktoré bunky menil tento
+     človek a ktoré niekto iný. */
+  const zakladRef = useRef(null);
+  // poistka proti donekonečna sa opakujúcemu skladaniu, keď je server pod náporom
+  const pokusyOZlucenie = useRef(0);
+
   const load = useCallback(async () => {
     // nová sada dát zo servera/dema nie je "úprava" — zásobník späť/znova sa začína odznova
     undoStackRef.current = [];
@@ -264,6 +272,12 @@ export default function App() {
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
+      zakladRef.current = {
+        crew: d.crew || [], cells: d.cells || {}, nad: d.nad || {}, sadzby: d.sadzby || {},
+        chaty: d.chaty || {}, reporty: d.reporty || {}, dispo: d.dispo || {},
+        pendingDispo: d.pendingDispo || [], pendingHook: d.pendingHook || [], log: d.log || [],
+      };
+      pokusyOZlucenie.current = 0;
       setConnError("");
       setConflict(false);
       setDirty(false);
@@ -341,6 +355,11 @@ export default function App() {
   const saveTimer = useRef(null);
   useEffect(() => {
     if (!loaded || !canEditCells || conflict) return;
+    /* Ukladáme iba vtedy, keď človek naozaj niečo zmenil. Bez tejto podmienky sa
+       zapisovalo aj po obyčajnom načítaní appky — a keďže server drží jedno
+       spoločné číslo verzie, každý, kto ráno otvoril appku, posunul verziu a
+       ostatným vyskočila hláška o strete, hoci sa nikto ničoho nedotkol. */
+    if (!dirty) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       if (!getApiBase()) {
@@ -349,15 +368,51 @@ export default function App() {
         return;
       }
       setSaving(true);
+      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log };
       try {
-        const res = await saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, baseVersion: version });
+        const res = await saveData({ ...odoslane, baseVersion: version });
         setVersion(res.version);
+        zakladRef.current = odoslane;
+        pokusyOZlucenie.current = 0;
         setDirty(false);
         setStatus("Uložené na server.");
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          setConflict(true);
-          setStatus("");
+          /* Niekto uložil skôr. Kým sme sa nedotkli tej istej bunky, nie je to
+             ozajstný spor — appka vezme jeho stav a dopíše doň ten svoj. Ak sa
+             prekrývame, zlúčenie sa nepokúsi a rozhodne človek. */
+          const zlucene = pokusyOZlucenie.current < 5
+            ? skusZlucit(zakladRef.current, odoslane, e.telo?.current)
+            : null;
+          if (zlucene) {
+            pokusyOZlucenie.current += 1;
+            const s = e.telo.current;
+            /* Všetko okrem buniek preberáme rovno zo servera — zlúčiť sa smelo
+               iba preto, že sme sa toho ani nedotkli, takže jeho verzia je tá
+               správna. Bez toho by sme mu vzápätí prepísali napr. zmenu v štábe
+               našou starou kópiou. */
+            if (s.crew?.length) setCrew(s.crew);
+            setNadState(s.nad || {});
+            setSadzbyState(s.sadzby || {});
+            setChatyState(s.chaty || {});
+            setReportyState(s.reporty || {});
+            setDispoState(s.dispo || {});
+            setPendingDispoState(s.pendingDispo || []);
+            setPendingHookState(s.pendingHook || []);
+            setCells(zlucene.cells);
+            setLog(zlucene.log);
+            setVersion(s.version);
+            zakladRef.current = {
+              crew: s.crew || [], cells: s.cells || {}, nad: s.nad || {}, sadzby: s.sadzby || {},
+              chaty: s.chaty || {}, reporty: s.reporty || {}, dispo: s.dispo || {},
+              pendingDispo: s.pendingDispo || [], pendingHook: s.pendingHook || [], log: s.log || [],
+            };
+            setDirty(true);
+            setStatus("Medzitým ukladal niekto iný — zmeny som poskladal dokopy.");
+          } else {
+            setConflict(true);
+            setStatus("");
+          }
         } else if (e instanceof ApiError && e.status === 401) {
           setMe(null);
           setAuthError("Prihlásenie vypršalo, prihlás sa znova.");

@@ -314,17 +314,22 @@ async function handlePostData(request, env) {
     version: current.version + 1,
   };
 
-  // Práva sa kontrolujú porovnaním starého a nového stavu — appka posiela celý
-  // rozpis naraz, takže sa nedá spoľahnúť na to, čo poslal prehliadač.
-  // Kontrolujeme skôr ako verziu, nech človek bez práv dostane zrozumiteľnú
-  // hlášku "nemáš právo" a nie mätúci "conflict".
-  const allowed = checkStateChange(user, current, next);
-  if (!allowed.ok) return json({ error: allowed.error }, 403, env);
-
+  /* Najprv verzia, až potom práva.
+     Práva sa kontrolujú porovnaním starého a nového stavu — appka posiela celý
+     rozpis naraz, takže sa nedá spoľahnúť na to, čo poslal prehliadač. Lenže keď
+     prehliadač vychádza zo staršej verzie, to porovnanie klame: chýbajú mu cudzie
+     bunky, ktoré medzitým niekto pridal, a vyzerá to, akoby ich chcel zmazať.
+     Členovi štábu tak na obyčajné „nemôžem“ vyskočilo „Na túto časť rozpisu
+     nemáš právo“, hoci sa cudzej bunky ani nedotkol. Keď je verzia stará, jediná
+     pravdivá odpoveď je „conflict“ — hláška o právach ostáva pre toho, kto má
+     aktuálne dáta a naozaj siaha, kam nemá. */
   if (baseVersion !== current.version) {
     // niekto iný medzitým uložil novšiu verziu
     return json({ error: "conflict", current }, 409, env);
   }
+
+  const allowed = checkStateChange(user, current, next);
+  if (!allowed.ok) return json({ error: allowed.error }, 403, env);
 
   /* História sa smie iba dopĺňať — nikdy prepisovať. Kontroluje sa až tu, keď
      už vieme, že klient vychádzal z aktuálnej verzie, takže "current.log" je
