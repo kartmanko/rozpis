@@ -66,6 +66,17 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }
           );
         })}
 
+        {denneDispo && (denneDispo.miesto || denneDispo.pocasie) && (
+          <div className="border-t border-f-hair pt-2.5 mt-2.5 flex flex-wrap gap-x-4 gap-y-0.5">
+            {denneDispo.miesto && (
+              <div className="text-[12.5px] text-f-text"><span className="text-f-faint2">Miesto: </span>{denneDispo.miesto}</div>
+            )}
+            {denneDispo.pocasie && (
+              <div className="text-[12.5px] text-f-text"><span className="text-f-faint2">Počasie: </span>{denneDispo.pocasie}</div>
+            )}
+          </div>
+        )}
+
         {denneDispo && (denneDispo.harmonogram || []).length > 0 && (
           <div className="border-t border-f-hair pt-2.5 mt-2.5">
             <div className="text-[9.5px] font-bold tracking-wider text-f-faint uppercase mb-1.5">Harmonogram</div>
@@ -80,6 +91,27 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }
             {denneDispo.poznamky && (
               <div className="text-[11.5px] text-f-muted2 whitespace-pre-wrap mt-1.5">{denneDispo.poznamky}</div>
             )}
+          </div>
+        )}
+
+        {denneDispo && !(denneDispo.harmonogram || []).length && denneDispo.poznamky && (
+          <div className="border-t border-f-hair pt-2.5 mt-2.5">
+            <div className="text-[11.5px] text-f-muted2 whitespace-pre-wrap">{denneDispo.poznamky}</div>
+          </div>
+        )}
+
+        {denneDispo && (denneDispo.kontakty || []).length > 0 && (
+          <div className="border-t border-f-hair pt-2.5 mt-2.5">
+            <div className="text-[9.5px] font-bold tracking-wider text-f-faint uppercase mb-1.5">Kontakty na produkciu</div>
+            <div className="space-y-1">
+              {denneDispo.kontakty.map((k, i) => (
+                <div key={i} className="text-[12.5px] text-f-text flex flex-wrap gap-x-1.5">
+                  <span className="font-semibold">{k.meno}</span>
+                  {k.rola && <span className="text-f-faint2">({k.rola})</span>}
+                  <a href={`tel:${k.telefon}`} className="text-f-accent font-mono">{k.telefon}</a>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

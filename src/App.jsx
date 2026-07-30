@@ -624,14 +624,17 @@ export default function App() {
   const potvrdDispo = useCallback((navrh, volba) => {
     const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(volba?.datum || "")) ? volba.datum : navrh.datum;
 
-    // 1. harmonogram dňa — ukáže sa v detaile dňa
-    if (volba?.harmonogram && (navrh.harmonogram || []).length) {
+    // 1. info ku dňu — harmonogram, miesto, počasie, poznámky a kontakty; ukáže sa v detaile dňa
+    if (volba?.info) {
       setDispoState((prev) => ({
         ...prev,
         [datum]: {
           datum,
-          harmonogram: navrh.harmonogram,
+          miesto: navrh.miesto || "",
+          pocasie: navrh.pocasie || "",
+          harmonogram: navrh.harmonogram || [],
           poznamky: navrh.poznamky || "",
+          kontakty: navrh.kontakty || [],
           predmet: navrh.predmet || "",
           potvrdene: new Date().toISOString(),
         },
@@ -661,7 +664,10 @@ export default function App() {
 
     setPendingDispoState((prev) => prev.filter((x) => x.id !== navrh.id));
     const kusky = [];
-    if (volba?.harmonogram && (navrh.harmonogram || []).length) kusky.push(`harmonogram (${navrh.harmonogram.length} položiek)`);
+    if (volba?.info && (navrh.harmonogram || []).length) kusky.push(`harmonogram (${navrh.harmonogram.length} položiek)`);
+    if (volba?.info && navrh.miesto) kusky.push("miesto");
+    if (volba?.info && navrh.pocasie) kusky.push("počasie");
+    if (volba?.info && (navrh.kontakty || []).length) kusky.push(`${navrh.kontakty.length} kontaktov`);
     if (vybrane.length) kusky.push(`${vybrane.length} zmien v obsadení`);
     addLog(`Dispo na ${datum} potvrdené: ${kusky.length ? kusky.join(", ") : "nič sa neprebralo"}`);
     setDirty(true);

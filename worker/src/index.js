@@ -889,13 +889,16 @@ async function handleChatyZabudni(request, env) {
 
 const DISPO_PROMPT = (dnesIso, menaStabu) => `Čítaš e-mail s dispozíciou (dispo) na natáčací deň televíznej relácie.
 Vráť IBA JSON objekt, bez markdownu a bez vysvetlenia, presne v tomto tvare:
-{"datum":"2026-08-15","harmonogram":[{"cas":"07:00","text":"zraz na základni"}],"poznamky":"","zmeny":[{"meno":"Ján Novák","smena":"A","nemoze":false,"dovod":"posun zrazu"}]}
+{"datum":"2026-08-15","miesto":"","pocasie":"","harmonogram":[{"cas":"07:00","text":"zraz na základni"}],"poznamky":"","kontakty":[{"meno":"Peter Novák","rola":"produkčný","telefon":"+421900000000"}],"zmeny":[{"meno":"Ján Novák","smena":"A","nemoze":false,"dovod":"posun zrazu"}]}
 
 Pravidlá:
 - "datum" je deň, na ktorý dispozícia platí, vo formáte YYYY-MM-DD. Mail prišiel ${dnesIso}; ak je uvedený deň a mesiac bez roka, doplň rok tak, aby bol dátum čo najbližšie k dátumu doručenia. Keď dátum nevieš určiť, daj null.
+- "miesto" je natáčacia lokalita alebo adresa na tento deň, presne tak, ako je v maile. Keď v maile nie je, daj "".
+- "pocasie" je predpoveď počasia na daný deň, keď je v maile uvedená (napr. "polojasno, 18 °C"). Keď nie je, daj "".
 - "harmonogram" je časový plán dňa v poradí, ako je v maile. "cas" je HH:MM (24-hodinový). Riadky bez času vynechaj. Text nechaj v pôvodnom znení, iba skráť na to podstatné.
 - ÚPLNE IGNORUJ sekciu o odchode/odjazde z Prahy a o doprave z Prahy — do harmonogramu ju nedávaj.
-- "poznamky" je krátke zhrnutie toho, čo je v maile dôležité a nie je to čas (počasie, oblečenie, čo si zobrať). Keď nič také nie je, daj "".
+- "poznamky" je krátke zhrnutie ostatného, čo je v maile dôležité a nemá vlastné pole (napr. oblečenie, čo si zobrať, špeciálne pokyny). Počasie, miesto ani kontakty sem znova nepíš. Keď nič také nie je, daj "".
+- "kontakty" sú ľudia z produkcie s telefónnym číslom uvedení ako kontakt na tento deň (napr. produkčný, vedúci lokácie, asistent produkcie). "rola" píš tak, ako je v maile, alebo krátko opíš. Bez telefónneho čísla kontakt nedávaj. Keď mail žiadne takéto kontakty neuvádza, daj prázdne pole.
 - "zmeny" vypĺňaj IBA vtedy, keď mail výslovne píše o zmene v obsadení konkrétneho človeka: kto má inú smenu, alebo kto v ten deň nie je. Nič nedomýšľaj — keď o zmenách v obsadení nie je reč, daj prázdne pole.
 - "smena" môže byť iba "A", "B", "C" alebo "R"; keď mail hovorí, že človek v ten deň nie je, daj "smena":null a "nemoze":true.
 - "meno" píš tak, ako je v maile. Ľudia zo štábu sa volajú: ${menaStabu || "(zoznam nie je k dispozícii)"}.
@@ -1052,8 +1055,11 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
   const mena = (state0.crew || []).map((c) => c.name).filter(Boolean).join(", ");
 
   let datum = null;
+  let miesto = "";
+  let pocasie = "";
   let harmonogram = [];
   let poznamky = "";
+  let kontakty = [];
   let zmeny = [];
   let precitane = false;
 
@@ -1062,11 +1068,22 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
       const clean = await callAnthropicText(env, DISPO_PROMPT(isoDna(prislo), mena), cistyText.slice(0, 12000));
       const v = JSON.parse(clean) || {};
       if (jeIso(v.datum)) datum = v.datum;
+      miesto = String(v.miesto || "").slice(0, 300);
+      pocasie = String(v.pocasie || "").slice(0, 200);
       harmonogram = (Array.isArray(v.harmonogram) ? v.harmonogram : [])
         .filter((h) => /^\d{1,2}:\d{2}$/.test(String(h?.cas || "")))
         .slice(0, 80)
         .map((h) => ({ cas: String(h.cas).padStart(5, "0"), text: String(h.text || "").slice(0, 300) }));
       poznamky = String(v.poznamky || "").slice(0, 2000);
+      // kontakt bez telefónu je len meno bez úžitku — v núdzi si ho vie človek dohľadať sám
+      kontakty = (Array.isArray(v.kontakty) ? v.kontakty : [])
+        .slice(0, 20)
+        .map((k) => ({
+          meno: String(k?.meno || "").slice(0, 80),
+          rola: String(k?.rola || "").slice(0, 80),
+          telefon: String(k?.telefon || "").slice(0, 40),
+        }))
+        .filter((k) => k.meno && k.telefon);
       zmeny = (Array.isArray(v.zmeny) ? v.zmeny : []).slice(0, 60).map((z) => {
         const clen = najdiClena(state0.crew, z?.meno);
         const smena = ["A", "B", "C", "R"].includes(z?.smena) ? z.smena : null;
@@ -1097,8 +1114,11 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
     prislo: prislo.toISOString(),
     predmet: String(predmet || "").slice(0, 200),
     od: String(od || "").slice(0, 120),
+    miesto,
+    pocasie,
     harmonogram,
     poznamky,
+    kontakty,
     zmeny,
     text: cistyText.slice(0, 20000),
   };

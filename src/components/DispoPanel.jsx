@@ -38,12 +38,16 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
     [dispo],
   );
 
+  /* Má návrh vôbec nejaké info ku dňu — harmonogram, miesto, počasie, poznámky
+     alebo kontakty? Bez toho nemá zmysel ponúkať zaškrtávacie políčko. */
+  const maInfo = (n) => (n.harmonogram || []).length > 0 || !!n.miesto || !!n.pocasie || !!n.poznamky || (n.kontakty || []).length > 0;
+
   /* Východzí stav zaškrtnutia pre jeden návrh. Zaškrtnuté je iba to, čomu appka
-     rozumie: harmonogram (keď nejaký je) a tie zmeny, pri ktorých si je istá, o koho
+     rozumie: info ku dňu (keď nejaké je) a tie zmeny, pri ktorých si je istá, o koho
      ide. Zvyšok musí človek doklikať sám. */
   const vychodzi = (n) => ({
     datum: n.datum,
-    harmonogram: (n.harmonogram || []).length > 0,
+    info: maInfo(n),
     zmeny: Object.fromEntries(
       (n.zmeny || []).map((z, i) => [i, z.crewId ? { vybrane: true, crewId: z.crewId } : { vybrane: false, crewId: "" }]),
     ),
@@ -88,6 +92,11 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
                       ? `${(n.harmonogram || []).length} položiek harmonogramu · ${(n.zmeny || []).length} zmien v obsadení`
                       : "mail sa nepodarilo rozobrať — je tu len text"}
                   </div>
+                  {n.precitane && (n.miesto || n.pocasie || (n.kontakty || []).length > 0) && (
+                    <div className="text-[10px] text-f-accent mt-0.5">
+                      {[n.miesto, n.pocasie, (n.kontakty || []).length ? `${n.kontakty.length} kontaktov` : ""].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
                 </div>
                 <span className="text-f-faint text-xs shrink-0 pt-0.5">{rozbaleny ? "▲" : "▼"}</span>
               </button>
@@ -105,30 +114,57 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
                     />
                   </div>
 
-                  {(n.harmonogram || []).length > 0 && (
+                  {maInfo(n) && (
                     <div className="mb-2">
                       <label className="flex items-center gap-2 text-[11px] font-bold text-f-text mb-1">
                         <input
                           type="checkbox"
-                          checked={!!s.harmonogram}
+                          checked={!!s.info}
                           disabled={!canEdit}
-                          onChange={(e) => uprav(n, { harmonogram: e.target.checked })}
+                          onChange={(e) => uprav(n, { info: e.target.checked })}
                         />
-                        Zapísať harmonogram ku dňu
+                        {(n.harmonogram || []).length > 0 ? "Zapísať info ku dňu (aj harmonogram)" : "Zapísať info ku dňu"}
                       </label>
-                      <div className="rounded-md bg-f-panel border border-f-border p-2 space-y-0.5">
-                        {n.harmonogram.map((h, i) => (
-                          <div key={i} className="text-[11.5px] text-f-text flex gap-2">
-                            <span className="font-mono text-f-accent shrink-0">{h.cas}</span>
-                            <span className="min-w-0">{h.text}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {n.poznamky && (
-                    <div className="text-[11.5px] text-f-muted2 mb-2 whitespace-pre-wrap">{n.poznamky}</div>
+                      {(n.miesto || n.pocasie) && (
+                        <div className="rounded-md bg-f-panel border border-f-border p-2 mb-1.5 space-y-0.5">
+                          {n.miesto && (
+                            <div className="text-[11.5px] text-f-text"><span className="text-f-faint2">Miesto: </span>{n.miesto}</div>
+                          )}
+                          {n.pocasie && (
+                            <div className="text-[11.5px] text-f-text"><span className="text-f-faint2">Počasie: </span>{n.pocasie}</div>
+                          )}
+                        </div>
+                      )}
+
+                      {(n.harmonogram || []).length > 0 && (
+                        <div className="rounded-md bg-f-panel border border-f-border p-2 space-y-0.5 mb-1.5">
+                          {n.harmonogram.map((h, i) => (
+                            <div key={i} className="text-[11.5px] text-f-text flex gap-2">
+                              <span className="font-mono text-f-accent shrink-0">{h.cas}</span>
+                              <span className="min-w-0">{h.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {n.poznamky && (
+                        <div className="text-[11.5px] text-f-muted2 mb-1.5 whitespace-pre-wrap">{n.poznamky}</div>
+                      )}
+
+                      {(n.kontakty || []).length > 0 && (
+                        <div className="rounded-md bg-f-panel border border-f-border p-2 space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-f-faint">Kontakty na produkciu</div>
+                          {n.kontakty.map((k, i) => (
+                            <div key={i} className="text-[11.5px] text-f-text flex flex-wrap gap-x-1.5">
+                              <span className="font-bold">{k.meno}</span>
+                              {k.rola && <span className="text-f-faint2">({k.rola})</span>}
+                              <a href={`tel:${k.telefon}`} className="text-f-accent font-mono" onClick={(e) => e.stopPropagation()}>{k.telefon}</a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {(n.zmeny || []).length > 0 && (
@@ -205,7 +241,7 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
             {potvrdene.map((d) => (
               <div key={d.datum} className="flex items-center gap-2 rounded-md bg-f-panel2 border border-f-border px-2 py-1.5">
                 <div className="text-[11.5px] text-f-text">{denText(d.datum)}</div>
-                <div className="text-[10px] text-f-faint2">{(d.harmonogram || []).length} položiek</div>
+                <div className="text-[10px] text-f-faint2">{(d.harmonogram || []).length} položiek{d.miesto ? ` · ${d.miesto}` : ""}</div>
                 {canEdit && (
                   <button
                     onClick={() => { if (confirm("Zmazať potvrdenú dispozíciu na tento deň?")) onZrusPotvrdene(d.datum); }}
