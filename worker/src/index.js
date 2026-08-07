@@ -229,7 +229,13 @@ async function readState(env) {
     const parsed = JSON.parse(raw);
     // doplň chýbajúce polia pre stav uložený ešte pred pridaním nad/pendingHook
     return { ...EMPTY_STATE, ...parsed };
-  } catch {
+  } catch (e) {
+    /* Poškodené dáta v KV sa nedajú v tejto chvíli opraviť a appka musí niečo
+       vrátiť — ale ticho sa tváriť, že rozpis je len prázdny, by bolo presne
+       to "appka to ticho prepísala", čomu sa tento projekt vyhýba. Aspoň nech
+       to je vidno v logu (wrangler tail / Cloudflare dashboard), nech to
+       niekto zbadá skôr, než ďalší zápis prázdny stav natrvalo potvrdí. */
+    console.log("state_v1 sa nedá rozobrať ako JSON, vraciam prázdny rozpis:", e && e.message, "dĺžka:", raw.length);
     return { ...EMPTY_STATE };
   }
 }

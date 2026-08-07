@@ -131,7 +131,10 @@ export async function readUsers(env) {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (e) {
+    // Poškodený users_v1 by inak znamenal, že sa naraz odhlási celý štáb a
+    // nikto by nevedel prečo — nech je to aspoň vidno v logu.
+    console.log("users_v1 sa nedá rozobrať ako JSON:", e && e.message);
     return [];
   }
 }
@@ -177,7 +180,8 @@ export async function readAuthLog(env) {
   try {
     const list = JSON.parse((await env.ROZPIS_KV.get(AUTHLOG_KEY)) || "[]");
     return Array.isArray(list) ? list : [];
-  } catch {
+  } catch (e) {
+    console.log("authlog_v1 sa nedá rozobrať ako JSON:", e && e.message);
     return [];
   }
 }
