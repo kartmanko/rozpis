@@ -581,6 +581,13 @@ export function checkStateChange(user, current, next) {
     if (!caps.pending) return { ok: false, error: "Dispo maily smú spracovať iba vedúci a admin." };
   }
 
+  // databáza kontaktov — zatiaľ bez vlastnej sekcie v mape rolí (tá príde až so
+  // sekciou 4 finálneho briefu), preto sa požičiava "users": ide o identitu
+  // podobné údaje ako prístupy a rovnako ich má na starosti iba hlavný admin.
+  if (JSON.stringify(current.kontakty || []) !== JSON.stringify(next.kontakty || [])) {
+    if (!caps.users) return { ok: false, error: "Databázu kontaktov smie meniť iba hlavný admin." };
+  }
+
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };

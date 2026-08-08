@@ -22,7 +22,7 @@ export function zmeneneKluce(zaklad = {}, novy = {}) {
 /* Časti stavu, ktoré sa zlučovať neskúšajú. Sú to zoznamy a nastavenia, kde by
    „poskladanie“ znamenalo hádať, čo mal človek na mysli — pri nich radšej nech
    sa appka spýta. */
-const NEZLUCUJE_SA = ["crew", "nad", "sadzby", "chaty", "reporty", "dispo", "pendingDispo", "pendingHook"];
+const NEZLUCUJE_SA = ["crew", "nad", "sadzby", "chaty", "reporty", "dispo", "pendingDispo", "kontakty", "pendingHook"];
 
 /**
  * Skúsi poskladať môj stav a stav zo servera dokopy.

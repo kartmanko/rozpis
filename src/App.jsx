@@ -28,6 +28,7 @@ import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
+import KontaktyPanel from "./components/KontaktyPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce } from "./zlucenie";
@@ -65,6 +66,7 @@ export default function App() {
   const [reporty, setReportyState] = useState({}); // denné reporty réžie (Fáza 4)
   const [dispo, setDispoState] = useState({}); // POTVRDENÉ dispozície, kľúč = deň (Fáza 5)
   const [pendingDispo, setPendingDispoState] = useState([]); // návrhy z dispo mailov, čakajú na potvrdenie
+  const [kontakty, setKontaktyState] = useState([]); // databáza kontaktov štábu a externých ľudí
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -113,7 +115,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo" | "kontakty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -261,6 +263,7 @@ export default function App() {
       setSadzbyState({});
       setChatyState({});
       setReportyState({});
+      setKontaktyState(DEMO_DATA.kontakty || []);
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -280,13 +283,14 @@ export default function App() {
       setReportyState(d.reporty || {});
       setDispoState(d.dispo || {});
       setPendingDispoState(d.pendingDispo || []);
+      setKontaktyState(d.kontakty || []);
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
       zakladRef.current = {
         crew: d.crew || [], cells: d.cells || {}, nad: d.nad || {}, sadzby: d.sadzby || {},
         chaty: d.chaty || {}, reporty: d.reporty || {}, dispo: d.dispo || {},
-        pendingDispo: d.pendingDispo || [], pendingHook: d.pendingHook || [], log: d.log || [],
+        pendingDispo: d.pendingDispo || [], kontakty: d.kontakty || [], pendingHook: d.pendingHook || [], log: d.log || [],
       };
       pokusyOZlucenie.current = 0;
       setConnError("");
@@ -379,7 +383,7 @@ export default function App() {
         return;
       }
       setSaving(true);
-      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log };
+      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log };
       try {
         const res = await saveData({ ...odoslane, baseVersion: version });
         setVersion(res.version);
@@ -414,6 +418,7 @@ export default function App() {
             setReportyState(s.reporty || {});
             setDispoState(s.dispo || {});
             setPendingDispoState(s.pendingDispo || []);
+            setKontaktyState(s.kontakty || []);
             setPendingHookState(s.pendingHook || []);
             setCells(zlucene.cells);
             setLog(zlucene.log);
@@ -421,7 +426,7 @@ export default function App() {
             zakladRef.current = {
               crew: s.crew || [], cells: s.cells || {}, nad: s.nad || {}, sadzby: s.sadzby || {},
               chaty: s.chaty || {}, reporty: s.reporty || {}, dispo: s.dispo || {},
-              pendingDispo: s.pendingDispo || [], pendingHook: s.pendingHook || [], log: s.log || [],
+              pendingDispo: s.pendingDispo || [], kontakty: s.kontakty || [], pendingHook: s.pendingHook || [], log: s.log || [],
             };
             setDirty(true);
             setStatus("Medzitým ukladal niekto iný — zmeny som poskladal dokopy.");
@@ -450,7 +455,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log, zapisPokus]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log, zapisPokus]);
 
   /* Keď telefónu nabehne signál, nečaká sa na ďalší odstup — skúsi sa hneď.
      Toto je ten bežný prípad: človek vyjde spoza stodoly a zmena má odletieť. */
@@ -771,6 +776,7 @@ export default function App() {
   );
 
   const wrappedSetCrew = useCallback((updater) => { setCrew(updater); setDirty(true); }, []);
+  const wrappedSetKontakty = useCallback((updater) => { setKontaktyState(updater); setDirty(true); }, []);
 
   /* --- výmena smeny (jeden krok späť/znova pre celú výmenu naraz) --- */
   const swap = (iso, aId, bId) => {
@@ -1084,7 +1090,7 @@ export default function App() {
 
   const obnovOdlozene = useCallback(() => {
     if (!odlozene) return;
-    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log };
+    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log };
     /* Skladá sa tým istým pravidlom ako pri strete dvoch ľudí naraz: dopíšu sa
        iba moje bunky, cudzie ostanú tak, ako sú. Ak sa to prekrýva, radšej nič. */
     const zlucene = skusZlucit(odlozene.zaklad, odlozene.stav, teraz);
@@ -1097,7 +1103,7 @@ export default function App() {
     setDirty(true);
     setOdlozene(null);
     setStatus("Odložené zmeny vrátené — ukladám.");
-  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, pendingHook, log]);
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log]);
 
   const zahodOdlozene = useCallback(() => {
     zahodNeulozene();
@@ -1203,6 +1209,9 @@ export default function App() {
                 {caps.users && (
                   <button onClick={() => togglePanel("users")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Prístupy</button>
                 )}
+                {caps.users && (
+                  <button onClick={() => togglePanel("kontakty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Kontakty</button>
+                )}
                 {canEditAll && (
                   <>
                     <div className="border-t border-f-hair my-1" />
@@ -1307,6 +1316,9 @@ export default function App() {
 
       {panel === "admin" && <AdminPanel me={me} onLogout={handleLogout} onClose={() => setPanel(null)} />}
       {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} />}
+      {panel === "kontakty" && caps.users && (
+        <KontaktyPanel kontakty={kontakty} setKontakty={wrappedSetKontakty} crew={crew} onClose={() => setPanel(null)} />
+      )}
       {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
       {panel === "vykazy" && (
         <VykazyPanel

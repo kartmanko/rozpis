@@ -64,7 +64,12 @@ const STATE_KEY = "state_v1";
 // "pendingDispo" = NÁVRHY z dispo mailov, ktoré ešte nikto nepotvrdil. Server sem
 //              iba odloží, čo v maile prečítal; rozpis sa nemení, kým to človek
 //              neodklikne. To je celá podstata Fázy 5: appka navrhne, admin potvrdí.
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], log: [], pendingHook: [], version: 0 };
+// "kontakty" = databáza kontaktov štábu a externých ľudí (dodávatelia, technika).
+//              Interní majú crewId (prepojenie na stĺpec v rozpise), externí iba
+//              meno/funkciu/mail/telefón — slúžia na napovedanie pri dispo mailoch
+//              a na klik-na-zavolanie/napísať. Zatiaľ sa NEPOUŽÍVA ako zoznam,
+//              kto sa smie prihlásiť — to je stále "users_v1" (samostatné, viď auth.js).
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], log: [], pendingHook: [], version: 0 };
 
 // Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
 // aby jeden pokazený bridge nezaplnil KV.
@@ -270,6 +275,8 @@ const MAX_STAV_ZNAKOV = 2_000_000; // uložený rozpis, ~2 MB
 const MAX_OBRAZOK_ZNAKOV = 6_000_000; // screenshot pre /parse (base64), ~4,5 MB obrázok
 const MAX_CHATOV = 300; // koľko WhatsApp skupín si server pamätá
 const MAX_POZNAMKA = 300; // dĺžka poznámky v bunke rozpisu
+const MAX_KONTAKTOV = 500; // koľko kontaktov si server pamätá
+const MAX_KONTAKT_POLE = 200; // dĺžka mena/funkcie/mailu/telefónu jedného kontaktu
 
 /* Bunka rozpisu smie mať iba tieto polia. Predtým sa ukladalo, čo prišlo —
    a keďže kontrola práv porovnáva iba tieto polia, ktokoľvek prihlásený mohol
@@ -288,6 +295,30 @@ function ocistiBunky(cells) {
       note: String(c.note || "").slice(0, MAX_POZNAMKA),
       nadcas: Number.isFinite(nadcas) ? Math.min(24, Math.max(0, Math.round(nadcas * 10) / 10)) : 0,
     };
+  }
+  return out;
+}
+
+/* Kontakt smie mať iba tieto polia — rovnaký dôvod ako pri ocistiBunky vyššie.
+   "interny" prepája na crewId (človek zo štábu); externí (Jimmy Jib, ShowService…)
+   crewId nemajú, sú to iba meno + kontakt na napovedanie a mail. */
+function ocistiKontakty(arr) {
+  const out = [];
+  for (const k of arr) {
+    if (!k || typeof k !== "object") continue;
+    const meno = String(k.meno || "").trim().slice(0, MAX_KONTAKT_POLE);
+    if (!meno) continue;
+    out.push({
+      id: String(k.id || "k" + Math.random().toString(36).slice(2, 10)).slice(0, 60),
+      meno,
+      funkcia: String(k.funkcia || "").trim().slice(0, MAX_KONTAKT_POLE),
+      mail: String(k.mail || "").trim().slice(0, MAX_KONTAKT_POLE),
+      telefon: String(k.telefon || "").trim().slice(0, MAX_KONTAKT_POLE),
+      interny: !!k.interny,
+      crewId: k.interny && k.crewId ? String(k.crewId).slice(0, 60) : null,
+      aktivny: k.aktivny !== false,
+    });
+    if (out.length >= MAX_KONTAKTOV) break;
   }
   return out;
 }
@@ -315,6 +346,7 @@ async function handlePostData(request, env) {
     reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
     dispo: body.dispo && typeof body.dispo === "object" ? body.dispo : current.dispo,
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
+    kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
     log: Array.isArray(body.log) ? body.log.slice(0, LOG_MAX) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
