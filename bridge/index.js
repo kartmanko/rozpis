@@ -410,34 +410,43 @@ async function spusti() {
     // "notify" = nová správa. Ostatné typy sú dosynchrovanie histórie — tie preskoč.
     if (type !== "notify") return;
 
+    /* Všetky správy z tohto upsertu (môže ich byť aj desiatky naraz, napr. po
+       reštarte bridgeu) idú na server JEDNÝM volaním /hook, nie samostatným
+       volaním pre každú správu. Server ich spracuje ako jednu dávku — prečíta
+       a zapíše celý rozpis najviac raz, nie raz na správu. Predtým dokázal
+       reštart bridgeu (desiatky zmeškaných správ naraz) sám spotrebovať
+       poriadny kus denného stropu zápisov do KV. */
+    const davka = [];
     for (const msg of messages) {
-      try {
-        if (msg.key?.fromMe) continue; // vlastné správy nečítame
-        const chatId = msg.key?.remoteJid || "";
-        if (!chatId || chatId === "status@broadcast") continue;
+      if (msg.key?.fromMe) continue; // vlastné správy nečítame
+      const chatId = msg.key?.remoteJid || "";
+      if (!chatId || chatId === "status@broadcast") continue;
 
-        // Z nezapnutého chatu neodíde zo stroja ani písmeno.
-        if (!povoleneChaty.has(chatId)) continue;
+      // Z nezapnutého chatu neodíde zo stroja ani písmeno.
+      if (!povoleneChaty.has(chatId)) continue;
 
-        const text = textSpravy(msg);
-        if (!text.trim()) continue;
+      const text = textSpravy(msg);
+      if (!text.trim()) continue;
 
-        const odpoved = await serverPost("/hook", {
-          bridgeId: BRIDGE_ID,
-          msgId: msg.key?.id || "",
-          chatId,
-          chatName: nazvyChatov.get(chatId) || "",
-          // kedy bola správa naozaj odoslaná — pri denných reportoch (Fáza 4) je to
-          // záložný dátum dňa, keď sa dátum nedá vyčítať priamo z textu
-          ts: Number(msg.messageTimestamp) || 0,
-          phone: cisloOdosielatela(msg),
-          sender: msg.pushName || "",
-          text,
-        });
-        log.info({ chatId, odpoved }, "správa odoslaná serveru");
-      } catch (e) {
-        log.error({ e: e.message }, "správu sa nepodarilo spracovať");
-      }
+      davka.push({
+        msgId: msg.key?.id || "",
+        chatId,
+        chatName: nazvyChatov.get(chatId) || "",
+        // kedy bola správa naozaj odoslaná — pri denných reportoch (Fáza 4) je to
+        // záložný dátum dňa, keď sa dátum nedá vyčítať priamo z textu
+        ts: Number(msg.messageTimestamp) || 0,
+        phone: cisloOdosielatela(msg),
+        sender: msg.pushName || "",
+        text,
+      });
+    }
+    if (!davka.length) return;
+
+    try {
+      const odpoved = await serverPost("/hook", { bridgeId: BRIDGE_ID, messages: davka });
+      log.info({ pocet: davka.length, odpoved }, "dávka správ odoslaná serveru");
+    } catch (e) {
+      log.error({ e: e.message, pocet: davka.length }, "dávku správ sa nepodarilo spracovať");
     }
   });
 }

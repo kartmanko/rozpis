@@ -537,34 +537,30 @@ function matchCrewByPhone(crew, phone) {
   return crew.find((c) => (c.aliases || []).some((a) => phoneKey(a) === pk)) || null;
 }
 
-async function handlePostHook(request, env) {
-  if (!(await checkHookSecret(request, env))) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Neplatné telo požiadavky." }, 400, env);
-  }
-
+/**
+ * Spracuje JEDNU správu proti danému stavu a vráti { vysledok, mutacie }.
+ * "mutacie" sú čiastkové zmeny, ktoré volajúci poskladá do jedného zápisu —
+ * táto funkcia sama do KV nič nezapisuje, aby sa dala volať pre celú dávku
+ * správ naraz s jedným spoločným čítaním aj zápisom stavu (viď handlePostHook).
+ */
+async function spracujHookSpravu(env, state, msg) {
   // groupId je starý názov toho istého poľa — nechávam ho, nech starší bridge nespadne
-  const { bridgeId, msgId, chatId: chatIdRaw, groupId, chatName, phone, sender, text } = body;
+  const { msgId, chatId: chatIdRaw, groupId, chatName, phone, sender, text, bridgeId } = msg;
   const chatId = String(chatIdRaw || groupId || "").slice(0, 120);
 
-  // bridge sa každou správou hlási, že žije
-  if (bridgeId) await bridgePing(env, bridgeId, { stav: "beží" });
-
   if (!text || !String(text).trim()) {
-    return json({ ignored: true, reason: "prázdny text" }, 200, env);
+    return { vysledok: { ignored: true, reason: "prázdny text" } };
   }
 
   /* Tú istú správu dostaneme dvakrát vždy, keď bežia dva bridge (Fly.io + naska).
      Pečiatku kontrolujeme HNEĎ na začiatku, ešte pred čítaním textu modelom —
-     nemá zmysel platiť dvakrát za to isté. */
+     nemá zmysel platiť dvakrát za to isté. Táto pečiatka sa zapisuje rovno
+     (nie cez spoločný zápis na konci dávky) — musí byť vidieť hneď pre ďalšiu
+     správu v tej istej dávke aj pre druhý bridge, ktorý môže volať súbežne. */
   const msgKey = msgId ? "hookmsg:" + String(msgId).slice(0, 120) : "";
   if (msgKey) {
     if (await env.ROZPIS_KV.get(msgKey)) {
-      return json({ duplicate: true, reason: "správu už spracoval druhý bridge" }, 200, env);
+      return { vysledok: { duplicate: true, reason: "správu už spracoval druhý bridge" } };
     }
     await env.ROZPIS_KV.put(msgKey, bridgeId || "1", { expirationTtl: HOOKMSG_TTL });
   }
@@ -574,38 +570,37 @@ async function handlePostHook(request, env) {
      telefónnom čísle: radšej nech appka navrhne, než aby konala sama. */
   // "dostupnost" = kto kedy nemôže (Fáza 3), "report" = denný report réžie (Fáza 4)
   let druhChatu = "dostupnost";
-  {
-    const state0 = await readState(env);
-    const chaty = { ...(state0.chaty || {}) };
-    const zaznam = chaty[chatId];
-    const menoChatu = String(chatName || "").slice(0, 120);
+  const chaty = { ...(state.chaty || {}) };
+  const zaznam = chaty[chatId];
+  const menoChatu = String(chatName || "").slice(0, 120);
+  let mutacie = {};
 
-    if (chatId && !zaznam && Object.keys(chaty).length >= MAX_CHATOV) {
-      // rovnaký strop ako pri ohlásení čítačky — zoznam skupín nesmie rásť donekonečna
-      return json({ ignored: true, reason: "zoznam skupín je plný" }, 200, env);
-    }
-    if (chatId && !zaznam) {
-      chaty[chatId] = {
-        id: chatId,
-        nazov: menoChatu || "(bez názvu)",
-        povoleny: false,
-        prvyKrat: new Date().toISOString(),
-        poslednaSprava: new Date().toISOString(),
-      };
-      const log = [{ t: new Date().toISOString(), text: `WhatsApp bridge: nový chat „${menoChatu || chatId}" — čaká na zapnutie adminom` }, ...state0.log].slice(0, 400);
-      await writeState(env, { ...state0, chaty, log, version: state0.version + 1 });
-      return json({ chatUnknown: true, chatId, reason: "chat ešte nie je zapnutý" }, 200, env);
-    }
-    if (chatId && !zaznam.povoleny) {
-      return json({ ignored: true, reason: "chat je vypnutý" }, 200, env);
-    }
-    if (chatId && (zaznam.nazov !== menoChatu && menoChatu)) {
-      // názov skupiny sa dá premenovať — drž ho aktuálny, ale kvôli tomu neruš nič iné
-      chaty[chatId] = { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() };
-      await writeState(env, { ...state0, chaty, version: state0.version + 1 });
-    }
-    if (zaznam && zaznam.druh === "report") druhChatu = "report";
+  if (chatId && !zaznam && Object.keys(chaty).length >= MAX_CHATOV) {
+    // rovnaký strop ako pri ohlásení čítačky — zoznam skupín nesmie rásť donekonečna
+    return { vysledok: { ignored: true, reason: "zoznam skupín je plný" } };
   }
+  if (chatId && !zaznam) {
+    chaty[chatId] = {
+      id: chatId,
+      nazov: menoChatu || "(bez názvu)",
+      povoleny: false,
+      prvyKrat: new Date().toISOString(),
+      poslednaSprava: new Date().toISOString(),
+    };
+    return {
+      vysledok: { chatUnknown: true, chatId, reason: "chat ešte nie je zapnutý" },
+      mutacie: { chaty, logRiadok: `WhatsApp bridge: nový chat „${menoChatu || chatId}" — čaká na zapnutie adminom` },
+    };
+  }
+  if (chatId && !zaznam.povoleny) {
+    return { vysledok: { ignored: true, reason: "chat je vypnutý" } };
+  }
+  if (chatId && (zaznam.nazov !== menoChatu && menoChatu)) {
+    // názov skupiny sa dá premenovať — drž ho aktuálny, ale kvôli tomu neruš nič iné
+    chaty[chatId] = { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() };
+    mutacie = { chaty };
+  }
+  if (zaznam && zaznam.druh === "report") druhChatu = "report";
 
   /* ---------- Fáza 4: chat s dennými reportami ----------
      Jedna správa = jeden report. Obsah sa nerozoberá, iba sa k nemu nájde deň:
@@ -613,7 +608,7 @@ async function handlePostHook(request, env) {
      kedy správa prišla. Report sa nikam nezapisuje do rozpisu — iba sa uloží
      a ukáže pri tom dni. */
   if (druhChatu === "report") {
-    const prisloDna = datumSpravy(body.ts);
+    const prisloDna = datumSpravy(msg.ts);
     let datum = isoDna(prisloDna);
     let zdroj = "sprava";
 
@@ -629,12 +624,10 @@ async function handlePostHook(request, env) {
       }
     }
 
-    const state = await readState(env);
     const reporty = { ...(state.reporty || {}) };
-
     // druhý bridge doručí tú istú správu — poistka aj bez pečiatky v KV
     if (msgId && Object.values(reporty).some((r) => r.msgId === String(msgId).slice(0, 120))) {
-      return json({ duplicate: true, reason: "report už je uložený" }, 200, env);
+      return { vysledok: { duplicate: true, reason: "report už je uložený" } };
     }
 
     const id = "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -660,10 +653,14 @@ async function handlePostHook(request, env) {
         .forEach((k) => delete reporty[k]);
     }
 
-    const log = [{ t: new Date().toISOString(), text: `Report na ${datum}${zdroj === "sprava" ? " (dátum podľa dňa doručenia)" : ""} — ${String(sender || "neznámy").slice(0, 40)}` }, ...state.log].slice(0, 400);
-    const nextState = { ...state, reporty, log, version: state.version + 1 };
-    await writeState(env, nextState);
-    return json({ report: true, id, datum, zdrojDatumu: zdroj, version: nextState.version }, 200, env);
+    return {
+      vysledok: { report: true, id, datum, zdrojDatumu: zdroj },
+      mutacie: {
+        ...mutacie,
+        reporty,
+        logRiadok: `Report na ${datum}${zdroj === "sprava" ? " (dátum podľa dňa doručenia)" : ""} — ${String(sender || "neznámy").slice(0, 40)}`,
+      },
+    };
   }
 
   const defaultMonth = Number(env.DEFAULT_HOOK_MONTH) || 8;
@@ -677,7 +674,7 @@ async function handlePostHook(request, env) {
        druhý bridge (aj neskorší pokus) správu zahodil ako duplikát a tá by sa
        stratila potichu. To je presne to, čo sa diať nesmie. */
     if (msgKey) await env.ROZPIS_KV.delete(msgKey);
-    return json({ error: "Nepodarilo sa spracovať text správy: " + e.message }, 502, env);
+    return { vysledok: { error: "Nepodarilo sa spracovať text správy: " + e.message }, chyba502: true, mutacie };
   }
 
   const unavailable = Array.isArray(parsed.unavailable) ? parsed.unavailable : [];
@@ -686,15 +683,14 @@ async function handlePostHook(request, env) {
   const isCorrection = Boolean(parsed.isCorrection);
 
   if (!unavailable.length && !correctedAvailable.length && !noRestrictions) {
-    return json({ ignored: true, reason: "správa nerieši dostupnosť" }, 200, env);
+    return { vysledok: { ignored: true, reason: "správa nerieši dostupnosť" }, mutacie };
   }
 
-  const state = await readState(env);
   const match = matchCrewByPhone(state.crew, phone);
 
   if (match) {
     // telefón poznáme -> rovno zapíš (nikdy nezapisuj pri neznámom telefóne)
-    const cells = { ...state.cells };
+    const cells = { ...(mutacie.cells || state.cells) };
     // Pozor: prázdna bunka musí byť naozaj prázdna vo všetkých poliach, ktoré bunka drží —
     // vrátane nahláseného nadčasu (Fáza 2). Keby sa nadčas nerátal, oprava z WhatsAppu
     // ("v ten deň už môžem") by ticho zmazala bunku aj s nahlásenými hodinami.
@@ -715,17 +711,18 @@ async function handlePostHook(request, env) {
     if (noRestrictions) bits.push("bez obmedzení");
     if (unavailable.length) bits.push(`${unavailable.length} dní nemôže`);
     if (correctedAvailable.length) bits.push(`${correctedAvailable.length} dní opravených (znova môže)`);
-    const log = [{ t: new Date().toISOString(), text: `WhatsApp bridge: ${match.name} — ${bits.join(", ") || "žiadna zmena"}` }, ...state.log].slice(0, 400);
-    const next = { ...state, cells, log, version: state.version + 1 };
-    await writeState(env, next);
-    return json({ matched: true, crewId: match.id, version: next.version }, 200, env);
+    return {
+      vysledok: { matched: true, crewId: match.id },
+      mutacie: { ...mutacie, cells, logRiadok: `WhatsApp bridge: ${match.name} — ${bits.join(", ") || "žiadna zmena"}` },
+    };
   }
 
   // neznámy telefón -> NIKDY nezapisuj priamo, iba zaraď do fronty na potvrdenie adminom
-  const uzVoFronte = msgId && (state.pendingHook || []).some((e) => e.msgId && e.msgId === msgId);
+  const pendingHookDoteraz = mutacie.pendingHook || state.pendingHook || [];
+  const uzVoFronte = msgId && pendingHookDoteraz.some((e) => e.msgId && e.msgId === msgId);
   if (uzVoFronte) {
     // druhá poistka proti dvom bridgeom — pečiatka v KV mohla ešte nebyť vidieť
-    return json({ duplicate: true, reason: "správa už je vo fronte" }, 200, env);
+    return { vysledok: { duplicate: true, reason: "správa už je vo fronte" }, mutacie };
   }
   const entry = {
     id: "hook_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
@@ -741,10 +738,69 @@ async function handlePostHook(request, env) {
     noRestrictions,
     isCorrection,
   };
-  const pendingHook = [entry, ...(state.pendingHook || [])].slice(0, 200);
-  const next = { ...state, pendingHook, version: state.version + 1 };
-  await writeState(env, next);
-  return json({ queued: true, id: entry.id, version: next.version }, 200, env);
+  const pendingHook = [entry, ...pendingHookDoteraz].slice(0, 200);
+  return { vysledok: { queued: true, id: entry.id }, mutacie: { ...mutacie, pendingHook } };
+}
+
+/* Bridge pošle jednu alebo viac správ naraz (dávka = "messages"). Staršia appka
+   posiela jednu správu ako ploché pole priamo v tele požiadavky — to sa tu berie
+   ako dávka s jednou položkou, nech starý bridge nespadne.
+
+   Prečo dávka: pri reštarte bridgeu (alebo hocijakej krátkej odmlke) príde naraz
+   desiatky správ zo zmeškaného obdobia. Predtým každá spravila vlastné čítanie
+   aj zápis celého rozpisu do KV — pri dennom strope zápisov to appku vedelo
+   položiť skôr, než sa dostala k obedu. Teraz sa celý rozpis číta a zapisuje
+   NAJVIAC RAZ na dávku, nech je v nej správ koľkokoľvek. Pečiatka proti
+   duplicitám (druhý bridge) sa aj tak zapisuje za každú správu zvlášť — to sa
+   obísť nedá, keď má fungovať aj naprieč dvomi súbežnými bridgeami. */
+async function handlePostHook(request, env) {
+  if (!(await checkHookSecret(request, env))) return json({ error: "Neplatný alebo chýbajúci X-Hook-Secret." }, 401, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+
+  const dávka = Array.isArray(body.messages) ? body.messages : [body];
+  if (!dávka.length) return json({ ok: true, vysledky: [] }, 200, env);
+
+  // bridge sa každou dávkou hlási, že žije
+  if (body.bridgeId) await bridgePing(env, body.bridgeId, { stav: "beží" });
+
+  let state = await readState(env);
+  let mutacie = {};
+  const logRiadky = [];
+  const vysledky = [];
+  let chyba502 = false;
+
+  for (const surova of dávka) {
+    const msg = body.bridgeId && !surova.bridgeId ? { ...surova, bridgeId: body.bridgeId } : surova;
+    // ďalšia správa v tej istej dávke musí vidieť mutácie tých pred ňou (napr.
+    // dve správy od toho istého človeka v rovnakej dávke sa nesmú prepísať)
+    const priebeznyStav = { ...state, ...mutacie };
+    const { vysledok, mutacie: m } = await spracujHookSpravu(env, priebeznyStav, msg);
+    vysledky.push(vysledok);
+    if (vysledok?.error) chyba502 = true;
+    if (m) {
+      const { logRiadok, ...zvysok } = m;
+      mutacie = { ...mutacie, ...zvysok };
+      if (logRiadok) logRiadky.push(logRiadok);
+    }
+  }
+
+  if (Object.keys(mutacie).length || logRiadky.length) {
+    const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...state.log].slice(0, 400);
+    const next = { ...state, ...mutacie, log, version: state.version + 1 };
+    await writeState(env, next);
+    // dávka s jednou správou dostane rovnakú odpoveď ako predtým (bridge na to spolieha v logoch)
+    if (!Array.isArray(body.messages)) return json({ ...vysledky[0], version: next.version }, chyba502 ? 502 : 200, env);
+    return json({ ok: true, vysledky, version: next.version }, chyba502 ? 502 : 200, env);
+  }
+
+  if (!Array.isArray(body.messages)) return json(vysledky[0], chyba502 ? 502 : 200, env);
+  return json({ ok: true, vysledky }, chyba502 ? 502 : 200, env);
 }
 
 /* Bridge sa raz za päť minút ohlási, že žije, a pošle zoznam skupín, ktoré vidí.
