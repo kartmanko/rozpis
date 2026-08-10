@@ -1391,7 +1391,7 @@ export default function App() {
         />
       )}
       {panel === "dispoBuilder" && caps.pending && (
-        <DispoBuilderPanel dispo={dispo} crew={crew} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
+        <DispoBuilderPanel dispo={dispo} crew={crew} cellOf={cellOf} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
       )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />

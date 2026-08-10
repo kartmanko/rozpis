@@ -33,7 +33,7 @@ const prazdnyBlok = (datum) => ({
   dalsiPrijemcovia: "",
 });
 
-export default function DispoBuilderPanel({ dispo, crew, canEdit, onUloz, onClose }) {
+export default function DispoBuilderPanel({ dispo, crew, cellOf, canEdit, onUloz, onClose }) {
   const [datum, setDatum] = useState("");
   const [blok, setBlok] = useState(prazdnyBlok(""));
   const [nahlad, setNahlad] = useState(null); // null | "nacitava" | {subject, html, text, prijemcovia} | { chyba }
@@ -86,6 +86,13 @@ export default function DispoBuilderPanel({ dispo, crew, canEdit, onUloz, onClos
   }, [blok.skupiny]);
 
   const menoZCrew = (id) => (crew || []).find((c) => String(c.id) === String(id))?.name || id;
+
+  // kto je zapísaný do niektorej skupiny, ale na ten deň má v rozpise "nemôže" (červená) —
+  // appka to nikdy nezakáže (dispo a rozpis sú nezávislé), iba na to upozorní.
+  const konflikty = useMemo(() => {
+    if (!datum || !cellOf) return [];
+    return ludiaVoBloku.filter((id) => cellOf(datum, id)?.off);
+  }, [datum, cellOf, ludiaVoBloku]);
 
   const zostavBlok = () => ({
     datum: blok.datum,
@@ -209,6 +216,13 @@ export default function DispoBuilderPanel({ dispo, crew, canEdit, onUloz, onClos
             className="w-full bg-f-panel border border-f-border rounded-md px-2 py-1.5 text-[12px] text-f-text mb-2.5"
           />
 
+          {konflikty.length > 0 && (
+            <div className="mb-2.5 p-2 rounded-md bg-f-r/10 border border-f-r/50 text-[11px] text-f-text">
+              ⚠ V rozpise má na {denText(datum)} nastavené „nemôže“: {konflikty.map((id) => menoZCrew(id)).join(", ")}.
+              Appka to nezakazuje (dispo a rozpis sú nezávislé), len na to upozorňuje.
+            </div>
+          )}
+
           <div className="mb-2.5">
             <div className="flex items-center gap-2 mb-1">
               <div className="text-[10px] font-bold uppercase tracking-wider text-f-faint">Skupiny (komu sa to pošle)</div>
@@ -231,14 +245,22 @@ export default function DispoBuilderPanel({ dispo, crew, canEdit, onUloz, onClos
                   <div className="flex flex-wrap gap-1">
                     {(crew || []).map((c) => {
                       const vybrany = s.ludia.includes(c.id);
+                      const nedostupny = vybrany && datum && cellOf && cellOf(datum, c.id)?.off;
                       return (
                         <button
                           key={c.id}
                           disabled={!canEdit}
                           onClick={() => prepniVSkupine(i, c.id)}
-                          className={`px-1.5 py-0.5 rounded text-[10.5px] font-medium border ${vybrany ? "bg-f-accent text-f-ink border-f-accent" : "bg-f-panel2 text-f-faint2 border-f-border"}`}
+                          title={nedostupny ? "V rozpise má na tento deň nastavené „nemôže“" : ""}
+                          className={`px-1.5 py-0.5 rounded text-[10.5px] font-medium border ${
+                            nedostupny
+                              ? "bg-f-r/20 text-f-r border-f-r"
+                              : vybrany
+                                ? "bg-f-accent text-f-ink border-f-accent"
+                                : "bg-f-panel2 text-f-faint2 border-f-border"
+                          }`}
                         >
-                          {c.name}
+                          {nedostupny ? "⚠ " : ""}{c.name}
                         </button>
                       );
                     })}
