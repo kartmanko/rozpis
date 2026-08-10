@@ -24,13 +24,14 @@ import ThemeToggle from "./components/ThemeToggle";
 import LoginScreen from "./components/LoginScreen";
 import UsersPanel from "./components/UsersPanel";
 import SadzbyPanel from "./components/SadzbyPanel";
+import UzavierkyPanel from "./components/UzavierkyPanel";
 import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
-import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
+import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce } from "./zlucenie";
 import { ulozNeulozene, nacitajNeulozene, zahodNeulozene } from "./neulozene";
@@ -68,6 +69,7 @@ export default function App() {
   const [dispo, setDispoState] = useState({}); // POTVRDENÉ dispozície, kľúč = deň (Fáza 5)
   const [pendingDispo, setPendingDispoState] = useState([]); // návrhy z dispo mailov, čakajú na potvrdenie
   const [kontakty, setKontaktyState] = useState([]); // databáza kontaktov štábu a externých ľudí
+  const [uzavierky, setUzavierkyState] = useState([]); // uzávierky mesiacov + história vyplateného (sekcia 6 briefu)
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -116,7 +118,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -265,6 +267,7 @@ export default function App() {
       setChatyState({});
       setReportyState({});
       setKontaktyState(DEMO_DATA.kontakty || []);
+      setUzavierkyState(DEMO_DATA.uzavierky || []);
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -285,13 +288,15 @@ export default function App() {
       setDispoState(d.dispo || {});
       setPendingDispoState(d.pendingDispo || []);
       setKontaktyState(d.kontakty || []);
+      setUzavierkyState(d.uzavierky || []);
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
       zakladRef.current = {
         crew: d.crew || [], cells: d.cells || {}, nad: d.nad || {}, sadzby: d.sadzby || {},
         chaty: d.chaty || {}, reporty: d.reporty || {}, dispo: d.dispo || {},
-        pendingDispo: d.pendingDispo || [], kontakty: d.kontakty || [], pendingHook: d.pendingHook || [], log: d.log || [],
+        pendingDispo: d.pendingDispo || [], kontakty: d.kontakty || [], uzavierky: d.uzavierky || [],
+        pendingHook: d.pendingHook || [], log: d.log || [],
       };
       pokusyOZlucenie.current = 0;
       setConnError("");
@@ -384,7 +389,7 @@ export default function App() {
         return;
       }
       setSaving(true);
-      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log };
+      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log };
       try {
         const res = await saveData({ ...odoslane, baseVersion: version });
         setVersion(res.version);
@@ -420,6 +425,7 @@ export default function App() {
             setDispoState(s.dispo || {});
             setPendingDispoState(s.pendingDispo || []);
             setKontaktyState(s.kontakty || []);
+            setUzavierkyState(s.uzavierky || []);
             setPendingHookState(s.pendingHook || []);
             setCells(zlucene.cells);
             setLog(zlucene.log);
@@ -427,7 +433,8 @@ export default function App() {
             zakladRef.current = {
               crew: s.crew || [], cells: s.cells || {}, nad: s.nad || {}, sadzby: s.sadzby || {},
               chaty: s.chaty || {}, reporty: s.reporty || {}, dispo: s.dispo || {},
-              pendingDispo: s.pendingDispo || [], kontakty: s.kontakty || [], pendingHook: s.pendingHook || [], log: s.log || [],
+              pendingDispo: s.pendingDispo || [], kontakty: s.kontakty || [], uzavierky: s.uzavierky || [],
+              pendingHook: s.pendingHook || [], log: s.log || [],
             };
             setDirty(true);
             setStatus("Medzitým ukladal niekto iný — zmeny som poskladal dokopy.");
@@ -456,7 +463,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log, zapisPokus]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log, zapisPokus]);
 
   /* Keď telefónu nabehne signál, nečaká sa na ďalší odstup — skúsi sa hneď.
      Toto je ten bežný prípad: človek vyjde spoza stodoly a zmena má odletieť. */
@@ -804,6 +811,48 @@ export default function App() {
   const wrappedSetCrew = useCallback((updater) => { setCrew(updater); setDirty(true); }, []);
   const wrappedSetKontakty = useCallback((updater) => { setKontaktyState(updater); setDirty(true); }, []);
 
+  /* Uzávierka mesiaca + história vyplateného (sekcia 6 briefu). Uzavretím sa
+     zmrazí výkaz KAŽDÉHO v štábe presne taký, aký je v tejto chvíli — to je ten
+     "dôkaz pri duálnom režime" z briefu. Neskoršia zmena sadzieb ani rozpisu sa
+     do už uzavretého mesiaca spätne nepremietne (server drží samostatnú kópiu
+     súm, nič sa nedopočítava naživo). Nadčas za uzavretý mesiac sa navyše nedá
+     meniť (kontroluje server), kým sa uzávierka nezruší. */
+  const jeMesiacUzavrety = useCallback((mesiac) => (uzavierky || []).some((u) => u.mesiac === mesiac && !u.zrusene), [uzavierky]);
+
+  const uzavriMesiac = useCallback((mesiac) => {
+    if (jeMesiacUzavrety(mesiac)) return; // už uzavreté — najprv treba zrušiť
+    const dniMesiaca = days.filter((d) => d.iso.slice(0, 7) === mesiac);
+    const vyplatene = crew.map((osoba) => {
+      const v = vykazOsoby({ osoba, dni: dniMesiaca, cellOf, sadzby });
+      return {
+        crewId: osoba.id,
+        meno: osoba.name,
+        profesia: osoba.role || "kamera",
+        hodiny: v.hodiny,
+        zakladC: v.zakladC,
+        nadcasC: v.nadcasC,
+        spoluC: v.spoluC,
+      };
+    });
+    const zaznam = {
+      id: "uz" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      mesiac,
+      ked: new Date().toISOString(),
+      kym: { email: me?.email || "", name: me?.name || "" },
+      vyplatene,
+      zrusene: null,
+    };
+    setUzavierkyState((prev) => [...prev, zaznam]);
+    addLog(`Mesiac ${mesiac} uzavretý — ${vyplatene.filter((v) => v.spoluC).length} vyplatených položiek`);
+    setDirty(true);
+  }, [jeMesiacUzavrety, days, crew, cellOf, sadzby, me, addLog]);
+
+  const zrusUzavierku = useCallback((id) => {
+    setUzavierkyState((prev) => prev.map((u) => (u.id === id && !u.zrusene ? { ...u, zrusene: new Date().toISOString() } : u)));
+    addLog(`Uzávierka zrušená (${id})`);
+    setDirty(true);
+  }, [addLog]);
+
   /* --- výmena smeny (jeden krok späť/znova pre celú výmenu naraz) --- */
   const swap = (iso, aId, bId) => {
     const nameOf = (id) => crew.find((c) => c.id === id)?.name || "?";
@@ -1116,7 +1165,7 @@ export default function App() {
 
   const obnovOdlozene = useCallback(() => {
     if (!odlozene) return;
-    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log };
+    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log };
     /* Skladá sa tým istým pravidlom ako pri strete dvoch ľudí naraz: dopíšu sa
        iba moje bunky, cudzie ostanú tak, ako sú. Ak sa to prekrýva, radšej nič. */
     const zlucene = skusZlucit(odlozene.zaklad, odlozene.stav, teraz);
@@ -1129,7 +1178,7 @@ export default function App() {
     setDirty(true);
     setOdlozene(null);
     setStatus("Odložené zmeny vrátené — ukladám.");
-  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log]);
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log]);
 
   const zahodOdlozene = useCallback(() => {
     zahodNeulozene();
@@ -1222,6 +1271,9 @@ export default function App() {
                 </div>
                 <button onClick={() => togglePanel("vykazy")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Výkazy</button>
                 <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
+                {caps.sadzby && (
+                  <button onClick={() => togglePanel("uzavierky")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Uzávierky mesiacov</button>
+                )}
                 {caps.reporty && (
                   <button onClick={() => togglePanel("reporty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
                     Denné reporty
@@ -1367,6 +1419,19 @@ export default function App() {
       )}
       {panel === "sadzby" && (
         <SadzbyPanel sadzby={sadzby} canEdit={!!caps.sadzby} onSetSadzba={setSadzba} onClose={() => setPanel(null)} />
+      )}
+      {panel === "uzavierky" && caps.sadzby && (
+        <UzavierkyPanel
+          uzavierky={uzavierky}
+          crew={crew}
+          cellOf={cellOf}
+          sadzby={sadzby}
+          days={days}
+          canEdit={!!caps.sadzby}
+          onUzavriet={uzavriMesiac}
+          onZrusit={zrusUzavierku}
+          onClose={() => setPanel(null)}
+        />
       )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}

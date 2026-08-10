@@ -550,6 +550,52 @@ export function logJeIbaDoplneny(stary, novy) {
   return false;
 }
 
+/* ---------- uzávierky mesiacov sa smú iba dopĺňať a rušiť, nie prepisovať ----------
+
+   Rovnaký dôvod ako pri histórii (logJeIbaDoplneny) vyššie: uzávierka je "dôkaz pri
+   duálnom režime" (brief, sekcia 6) — vyplatené sumy zmrazené v čase uzavretia. Keby
+   sa dala ticho prepísať alebo zmazať, nebol by to dôkaz o ničom. Existujúci záznam
+   preto smie zmeniť presne jedno pole — "zrusene" — a iba raz, z prázdna na čas
+   (nikdy naspäť na prázdno, nikdy na iný čas). Nové záznamy smú pribudnúť iba na
+   koniec zoznamu. */
+export function uzavierkyValidna(stare, nove) {
+  const s = Array.isArray(stare) ? stare : [];
+  const n = Array.isArray(nove) ? nove : [];
+  if (n.length < s.length) return false;
+  for (let i = 0; i < s.length; i++) {
+    const a = s[i];
+    const b = n[i];
+    if (!b) return false;
+    if (a.id !== b.id || a.mesiac !== b.mesiac || a.ked !== b.ked) return false;
+    if (JSON.stringify(a.kym || null) !== JSON.stringify(b.kym || null)) return false;
+    if (JSON.stringify(a.vyplatene || []) !== JSON.stringify(b.vyplatene || [])) return false;
+    if (a.zrusene && a.zrusene !== b.zrusene) return false; // raz zrušené, navždy zrušené
+  }
+  return true;
+}
+
+/** Je daný mesiac ("YYYY-MM") práve teraz uzavretý — existuje preň nezrušená uzávierka. */
+function mesiacUzavrety(uzavierky, mesiac) {
+  return (Array.isArray(uzavierky) ? uzavierky : []).some((u) => u.mesiac === mesiac && !u.zrusene);
+}
+
+/* Nadčas v uzavretom mesiaci sa nedá zmeniť — kontroluje sa mimo checkStateChange
+   (rovnaký dôvod ako pri uzavierkyValidna vyššie: platí to aj pre admina, inak by
+   uzávierka nebola dôkazom o ničom, keby si ju ten istý človek vedel obísť rovno
+   v rozpise bez toho, aby ju najprv formálne zrušil). Iné polia tej istej bunky
+   (smena, Duel, poznámka, "nemôžem") zamknuté nie sú — brief hovorí výslovne
+   iba o nadčase. Vracia mesiac, v ktorom sa niekto o to pokúsil, alebo null. */
+export function nadcasVUzavretomMesiaci(current, next) {
+  for (const key of changedKeys(current.cells, next.cells)) {
+    const mesiac = key.slice(0, 7); // "YYYY-MM" z "YYYY-MM-DD|crewId"
+    if (!mesiacUzavrety(current.uzavierky, mesiac)) continue;
+    const a = (current.cells || {})[key] || {};
+    const b = (next.cells || {})[key] || {};
+    if (Number(a.nadcas || 0) !== Number(b.nadcas || 0)) return mesiac;
+  }
+  return null;
+}
+
 /**
  * Porovná uložený a nový stav a povolí zmenu iba tam, kde na to má rola právo.
  * Vracia { ok: true } alebo { ok: false, error: "..." }.
@@ -612,6 +658,14 @@ export function checkStateChange(user, current, next) {
   // podobné údaje ako prístupy a rovnako ich má na starosti iba hlavný admin.
   if (JSON.stringify(current.kontakty || []) !== JSON.stringify(next.kontakty || [])) {
     if (!caps.users) return { ok: false, error: "Databázu kontaktov smie meniť iba hlavný admin." };
+  }
+
+  // uzávierka mesiaca + história vyplateného (sekcia 6 briefu) — peniaze, preto
+  // rovnako prísne ako sadzby (admin a hlavný produkčný). Tvar zmeny (príloha/
+  // zrušenie, nikdy prepis) sa kontroluje mimo tejto funkcie — viď handlePostData
+  // a uzavierkyValidna, rovnaký dôvod ako pri histórii (aj admin cez to musí prejsť).
+  if (JSON.stringify(current.uzavierky || []) !== JSON.stringify(next.uzavierky || [])) {
+    if (!caps.sadzby) return { ok: false, error: "Uzávierku mesiaca smie robiť iba hlavný admin alebo hlavný produkčný." };
   }
 
   // zmeny vo fronte z WhatsApp bridge

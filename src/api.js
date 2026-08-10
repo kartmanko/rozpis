@@ -118,8 +118,9 @@ export async function fetchData() {
 // "reporty" (denné reporty réžie) z Fázy 4.
 // "dispo" (potvrdené dispozície) a "pendingDispo" (návrhy z mailov) z Fázy 5.
 // "kontakty" (databáza kontaktov štábu a externých ľudí) zo sekcie 1 finálneho briefu.
-export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, pendingHook, log, baseVersion });
+// "uzavierky" (uzávierky mesiacov + história vyplateného) zo sekcie 6 finálneho briefu.
+export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log, baseVersion });
 }
 
 /** Ktoré bridge (čítačky WhatsAppu) sa naposledy ozvali — Fáza 3. */

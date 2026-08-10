@@ -48,6 +48,8 @@ import {
   readUsers,
   rovnakeTajomstvo,
   logJeIbaDoplneny,
+  uzavierkyValidna,
+  nadcasVUzavretomMesiaci,
   LOG_MAX,
   posliMail,
 } from "./auth.js";
@@ -74,7 +76,14 @@ const STATE_KEY = "state_v1";
 //              meno/funkciu/mail/telefón — slúžia na napovedanie pri dispo mailoch
 //              a na klik-na-zavolanie/napísať. Zatiaľ sa NEPOUŽÍVA ako zoznam,
 //              kto sa smie prihlásiť — to je stále "users_v1" (samostatné, viď auth.js).
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], log: [], pendingHook: [], version: 0 };
+// "uzavierky" = uzávierky mesiacov + história vyplateného (sekcia 6 finálneho briefu).
+//              Zoznam UDALOSTÍ, nie stav jedného mesiaca — rovnako ako "log" sú to
+//              prílohové záznamy, ktoré sa nedajú prepísať ani zmazať (viď auth.js,
+//              uzavierkyValidna). Uzavretím mesiaca sa zmrazí výkaz každého v štábe
+//              PRESNE taký, aký bol v tú chvíľu (aj keby sa neskôr zmenili sadzby) —
+//              to je ten "dôkaz pri duálnom režime" z briefu. Zrušiť sa dá iba
+//              označením "zrusene" (natrvalo), nikdy tichým zmazaním.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], uzavierky: [], log: [], pendingHook: [], version: 0 };
 
 // Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
 // aby jeden pokazený bridge nezaplnil KV.
@@ -282,6 +291,9 @@ const MAX_CHATOV = 300; // koľko WhatsApp skupín si server pamätá
 const MAX_POZNAMKA = 300; // dĺžka poznámky v bunke rozpisu
 const MAX_KONTAKTOV = 500; // koľko kontaktov si server pamätá
 const MAX_KONTAKT_POLE = 200; // dĺžka mena/funkcie/mailu/telefónu jedného kontaktu
+const MAX_UZAVIEROK = 300; // koľko uzávierkových udalostí si server pamätá (celá sezóna aj so zrušeniami)
+const MAX_VYPLATENYCH_POLOZIEK = 500; // koľko ľudí smie mať jedna uzávierka vo výplate (strop veľkosti štábu)
+const MAX_UZAVIERKA_POLE = 200; // dĺžka mena/e-mailu/profesie v jednej položke uzávierky
 
 /* Bunka rozpisu smie mať iba tieto polia. Predtým sa ukladalo, čo prišlo —
    a keďže kontrola práv porovnáva iba tieto polia, ktokoľvek prihlásený mohol
@@ -328,6 +340,45 @@ function ocistiKontakty(arr) {
   return out;
 }
 
+/* Uzávierka mesiaca (sekcia 6 briefu) smie mať iba tieto polia — rovnaký dôvod
+   ako pri ocistiBunky/ocistiKontakty vyššie. Číselné sumy sú v centoch (rovnaká
+   jednotka ako zvyšok výpočtu peňazí, viď src/vykazy.js). Poradie a obsah
+   existujúcich záznamov (okrem "zrusene") kontroluje uzavierkyValidna v auth.js —
+   toto tu je iba tvar jednej položky, nie kontrola nemennosti histórie. */
+function ocistiUzavierky(arr) {
+  const out = [];
+  for (const u of arr) {
+    if (!u || typeof u !== "object") continue;
+    const mesiac = /^\d{4}-\d{2}$/.test(String(u.mesiac || "")) ? u.mesiac : "";
+    const ked = String(u.ked || "").slice(0, 40);
+    if (!mesiac || !ked) continue;
+    const vyplatene = (Array.isArray(u.vyplatene) ? u.vyplatene : [])
+      .slice(0, MAX_VYPLATENYCH_POLOZIEK)
+      .map((v) => ({
+        crewId: String(v?.crewId || "").slice(0, 60),
+        meno: String(v?.meno || "").slice(0, MAX_UZAVIERKA_POLE),
+        profesia: String(v?.profesia || "").slice(0, 40),
+        hodiny: Number.isFinite(Number(v?.hodiny)) ? Math.max(0, Number(v.hodiny)) : 0,
+        zakladC: Number.isFinite(Number(v?.zakladC)) ? Math.round(Number(v.zakladC)) : 0,
+        nadcasC: Number.isFinite(Number(v?.nadcasC)) ? Math.round(Number(v.nadcasC)) : 0,
+        spoluC: Number.isFinite(Number(v?.spoluC)) ? Math.round(Number(v.spoluC)) : 0,
+      }));
+    out.push({
+      id: String(u.id || "uz" + Math.random().toString(36).slice(2, 10)).slice(0, 60),
+      mesiac,
+      ked,
+      kym: {
+        email: String(u.kym?.email || "").slice(0, MAX_UZAVIERKA_POLE),
+        name: String(u.kym?.name || "").slice(0, MAX_UZAVIERKA_POLE),
+      },
+      vyplatene,
+      zrusene: u.zrusene ? String(u.zrusene).slice(0, 40) : null,
+    });
+    if (out.length >= MAX_UZAVIEROK) break;
+  }
+  return out;
+}
+
 async function handlePostData(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
@@ -352,6 +403,7 @@ async function handlePostData(request, env) {
     dispo: body.dispo && typeof body.dispo === "object" ? body.dispo : current.dispo,
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
     kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
+    uzavierky: Array.isArray(body.uzavierky) ? ocistiUzavierky(body.uzavierky) : current.uzavierky,
     log: Array.isArray(body.log) ? body.log.slice(0, LOG_MAX) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,
@@ -379,6 +431,20 @@ async function handlePostData(request, env) {
      presne to, čo si načítal. Platí to aj pre admina, viď auth.js. */
   if (!logJeIbaDoplneny(current.log, next.log)) {
     return json({ error: "Históriu sa nedá prepísať ani vymazať — dá sa do nej iba dopĺňať." }, 403, env);
+  }
+
+  /* Uzávierky mesiacov (sekcia 6 briefu) sú "dôkaz pri duálnom režime" — rovnaký
+     dôvod ako pri histórii vyššie, kontroluje sa preto rovnako tu (mimo
+     checkStateChange, ktoré admina vyššie preskočí) a platí to aj pre admina. */
+  if (!uzavierkyValidna(current.uzavierky, next.uzavierky)) {
+    return json({ error: "Uzávierky sa nedajú prepísať ani zmazať, iba zrušiť (a to natrvalo)." }, 403, env);
+  }
+
+  /* Nadčas v uzavretom mesiaci sa nedá zmeniť, kým sa uzávierka nezruší — rovnako
+     mimo checkStateChange, aby to platilo aj pre admina (viď auth.js). */
+  const zamknutyMesiac = nadcasVUzavretomMesiaci(current, next);
+  if (zamknutyMesiac) {
+    return json({ error: `Nadčas za ${zamknutyMesiac} je uzavretý — mesiac treba najprv zrušiť.` }, 403, env);
   }
 
   /* Strop na veľkosť uloženého stavu. Bez neho stačí jedno uloženie s dlhým
