@@ -10,13 +10,18 @@ function denText(iso) {
   return `${SK_DAYS_FULL[d.getUTCDay()].toLowerCase()} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`;
 }
 
-/* Denné reporty (Fáza 4).
+/* Denné reporty (Fáza 4, rozšírené o viac chatov v sekcii 3 finálneho briefu).
 
-   Reporty chodia z osobitnej WhatsApp skupiny, ktorú admin v paneli
-   „WhatsApp chaty" prepne na druh „Reporty". Jedna správa = jeden report.
-   Obsah sa nijako nerozoberá — server v ňom hľadá iba dátum dňa, ktorého sa
-   report týka. Keď dátum v texte nie je, priradí sa deň, kedy správa prišla,
-   a v zozname je to zreteľne označené, aby to vedel niekto prehodiť. */
+   Reporty chodia z osobitných WhatsApp skupín, ktoré admin v paneli
+   „WhatsApp chaty" prepne na druh „Reporty" — pokojne aj viac naraz (napr. réžia
+   má svoj chat a Story produceri svoj), appka ich radí pod deň bez ohľadu na to,
+   odkiaľ prišli. Jedna správa = jeden report. Obsah sa nijako nerozoberá —
+   server v ňom hľadá iba dátum dňa, ktorého sa report týka. Keď dátum v texte
+   nie je, priradí sa deň, kedy správa prišla, a v zozname je to zreteľne
+   označené, aby to vedel niekto prehodiť.
+
+   Prístup: iba réžia/loggeri a Story produceri (caps.reporty) — kamera reporty
+   nevidí vôbec, ani v tomto paneli, ani v detaile dňa. */
 
 export default function ReportyPanel({ reporty, canEdit, onSetDatum, onPotvrdDen, onZmazat, onClose }) {
   const [hladanie, setHladanie] = useState("");
@@ -75,7 +80,9 @@ export default function ReportyPanel({ reporty, canEdit, onSetDatum, onPotvrdDen
                           <span className="ml-1.5 text-[10px] font-normal text-f-accent">dátum podľa dňa doručenia</span>
                         )}
                       </div>
-                      <div className="text-[10px] text-f-faint2 truncate">{r.autor || "neznámy"}</div>
+                      <div className="text-[10px] text-f-faint2 truncate">
+                        {r.autor || "neznámy"}{r.chatName ? ` · ${r.chatName}` : ""}
+                      </div>
                       {!rozbaleny && (
                         <div className="text-[11px] text-f-muted2 mt-0.5 line-clamp-2">{String(r.text || "").slice(0, 160)}</div>
                       )}

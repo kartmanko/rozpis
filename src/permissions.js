@@ -26,13 +26,17 @@ const SECTIONS = {
 
 // "sadzby" = meniť denné sadzby profesií (Fáza 2) — iba admin a hlavný produkčný.
 // "vykazVsetkych" = vidieť výkazy celého štábu, nielen svoj vlastný.
+// "reporty" = vidieť a spracovať denné reporty (sekcia 3 finálneho briefu) — iba
+//             réžia/loggeri (rezia_lead) a Story produceri, nie kamera. Vlastnú rolu
+//             "Story producer" appka zatiaľ nemá, kým ju neprinesie finálna mapa
+//             rolí (sekcia 4 briefu) — dovtedy ju zastupuje "produkcny".
 const CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true },
-  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
-  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
-  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true },
+  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false },
+  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true },
+  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
 };
 
 export const capsOf = (role) => CAPS[role] || CAPS.viewer;

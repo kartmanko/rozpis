@@ -45,13 +45,19 @@ const ROLE_SECTIONS = {
 // "sadzby" = meniť denné sadzby profesií (Fáza 2). Sú to peniaze, preto ich smie
 //            prepisovať iba hlavný admin a hlavný produkčný — vedúci sekcií nie.
 // "vykazVsetkych" = vidieť výkazy celého štábu, nielen svoj vlastný.
+// "reporty" = vidieť a spracovať denné reporty (sekcia 3 finálneho briefu — reporty
+//             smú čítať iba réžia/loggeri a Story produceri, nie kamera). "rezia_lead"
+//             už dnes pokrýva réžiu aj loggerov (viď ROLE_SECTIONS vyššie). Vlastnú
+//             rolu "Story producer" appka zatiaľ nemá — kým ju neprinesie finálna
+//             mapa rolí (sekcia 4 briefu), zastupuje ju najbližšia existujúca rola
+//             "produkcny". Až príde vlastná rola, toto sa prepojí na ňu namiesto.
 const ROLE_CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true },
-  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
-  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true },
-  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true },
+  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false },
+  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true },
+  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
 };
 
 export function roleCaps(role) {
@@ -577,11 +583,17 @@ export function checkStateChange(user, current, next) {
     return { ok: false, error: "Sledované WhatsApp chaty smú meniť iba vedúci a admin." };
   }
 
-  // denné reporty (Fáza 4) — appka ich sama nevytvára, tie chodia z WhatsAppu.
-  // Cez appku sa dá reportu iba prehodiť deň alebo ho zmazať, a to smie ten,
-  // kto spracúva frontu (vedúci a admin). Ostatní ich vidia, ale nemenia.
-  if (changedPlain(current.reporty, next.reporty).length && !caps.pending) {
-    return { ok: false, error: "Denné reporty smú meniť iba vedúci a admin." };
+  // denné reporty (Fáza 4, prístup zúžený v sekcii 3 finálneho briefu) — appka ich
+  // sama nevytvára, tie chodia z WhatsAppu (aj z viacerých chatov naraz, napr. réžia
+  // a Story produceri majú každý svoj). Cez appku sa dá reportu iba prehodiť deň
+  // alebo ho zmazať, a to smie iba "reporty" (réžia/loggeri/Story produceri a admin).
+  // Kamera panel v appke ani nevidí (klientská strana), ale rovnako ako pri všetkom
+  // ostatnom v appke GET /data posiela celý stav prihlásenému — to je poistka proti
+  // ZÁPISU, nie proti čítaniu; skutočné utajenie obsahu reportov pred kamerou by
+  // vyžadovalo samostatné čítanie podľa role, čo appka nikde nerobí (rovnaké ako
+  // pri kontaktoch aj dispo).
+  if (changedPlain(current.reporty, next.reporty).length && !caps.reporty) {
+    return { ok: false, error: "Denné reporty smú meniť iba réžia, loggeri, Story produceri a admin." };
   }
 
   // dispozície (Fáza 5). "pendingDispo" je fronta návrhov z mailov, "dispo" je to,

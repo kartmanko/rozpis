@@ -1222,10 +1222,12 @@ export default function App() {
                 </div>
                 <button onClick={() => togglePanel("vykazy")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Výkazy</button>
                 <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
-                <button onClick={() => togglePanel("reporty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
-                  Denné reporty
-                  {caps.pending && reportovNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{reportovNaPotvrdenie}</span>}
-                </button>
+                {caps.reporty && (
+                  <button onClick={() => togglePanel("reporty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
+                    Denné reporty
+                    {reportovNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{reportovNaPotvrdenie}</span>}
+                  </button>
+                )}
                 <button onClick={() => togglePanel("dispo")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
                   Dispo
                   {caps.pending && dispoNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{dispoNaPotvrdenie}</span>}
@@ -1368,10 +1370,10 @@ export default function App() {
       )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
-      {panel === "reporty" && (
+      {panel === "reporty" && caps.reporty && (
         <ReportyPanel
           reporty={reporty}
-          canEdit={!!caps.pending}
+          canEdit={!!caps.reporty}
           onSetDatum={setReportDatum}
           onPotvrdDen={potvrdReportDen}
           onZmazat={zmazReport}
@@ -1442,7 +1444,7 @@ export default function App() {
           iso={dayDetailIso}
           crew={crew}
           cellOf={cellOf}
-          reporty={reporty}
+          reporty={caps.reporty ? reporty : {}}
           dispo={dispo}
           kontakty={kontakty}
           onClose={() => setDayDetailIso(null)}
