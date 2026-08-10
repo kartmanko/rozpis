@@ -48,7 +48,7 @@ export function kontrolaPristupov(users = [], crew = []) {
     const smieVlastne = capsOf(u.role).ownOff;
     /* Vedúci ani produkčný nemusia byť v rozpise — majú čo robiť aj bez
        vlastného stĺpca. Chýbajúce priradenie im teda nevadí. */
-    const vediePole = u.role === "admin" || u.role === "kamera_lead" || u.role === "rezia_lead" || u.role === "produkcny";
+    const vediePole = u.role === "admin" || u.role === "kamera_admin" || u.role === "rezia_admin" || u.role === "produkcia_admin";
     if (!u.crewId) {
       if (smieVlastne && !vediePole) {
         problemy.push({ druh: "chyba", text: `${popis(u)} nie je priradený k nikomu v rozpise — po prihlásení si nebude vedieť označiť nič.` });

@@ -83,7 +83,13 @@ const STATE_KEY = "state_v1";
 //              PRESNE taký, aký bol v tú chvíľu (aj keby sa neskôr zmenili sadzby) —
 //              to je ten "dôkaz pri duálnom režime" z briefu. Zrušiť sa dá iba
 //              označením "zrusene" (natrvalo), nikdy tichým zmazaním.
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], uzavierky: [], log: [], pendingHook: [], version: 0 };
+// "denneRoly" = denné role (sekcia 4 finálneho briefu), kľúč = deň "YYYY-MM-DD".
+//              Pre daný deň appka pamätá, kto je hlavný režisér (najviac jeden) a
+//              kto sú Story produceri (viacero naraz). Na rozdiel od "uzavierky"
+//              toto NIE JE prílohový audit záznam — je to bežné nastavenie, dá sa
+//              kedykoľvek prepísať (napr. keď sa deň preplánuje), preto sa tu
+//              nekontroluje nemennosť histórie, iba tvar (viď ocistiDenneRoly).
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], uzavierky: [], denneRoly: [], log: [], pendingHook: [], version: 0 };
 
 // Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
 // aby jeden pokazený bridge nezaplnil KV.
@@ -294,6 +300,8 @@ const MAX_KONTAKT_POLE = 200; // dĺžka mena/funkcie/mailu/telefónu jedného k
 const MAX_UZAVIEROK = 300; // koľko uzávierkových udalostí si server pamätá (celá sezóna aj so zrušeniami)
 const MAX_VYPLATENYCH_POLOZIEK = 500; // koľko ľudí smie mať jedna uzávierka vo výplate (strop veľkosti štábu)
 const MAX_UZAVIERKA_POLE = 200; // dĺžka mena/e-mailu/profesie v jednej položke uzávierky
+const MAX_DENNE_ROLY = 400; // jeden záznam na deň, s rezervou nad dĺžku sezóny
+const MAX_STORY_PRODUCENTOV_DNA = 20; // strop na počet Story producerov v jednom dni
 
 /* Bunka rozpisu smie mať iba tieto polia. Predtým sa ukladalo, čo prišlo —
    a keďže kontrola práv porovnáva iba tieto polia, ktokoľvek prihlásený mohol
@@ -379,6 +387,25 @@ function ocistiUzavierky(arr) {
   return out;
 }
 
+/* Denné role (sekcia 4 finálneho briefu) smú mať iba tieto polia — rovnaký dôvod
+   ako pri ocistiBunky/ocistiKontakty vyššie. Jeden deň = jeden záznam (kľúčované
+   podľa "iso", nie zoznam udalostí ako pri uzávierkach) — druhé uloženie pre ten
+   istý deň jednoducho prepíše predchádzajúce priradenie, to je zámer. */
+function ocistiDenneRoly(arr) {
+  const podla = new Map();
+  for (const d of arr) {
+    if (!d || typeof d !== "object") continue;
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(String(d.iso || "")) ? d.iso : "";
+    if (!iso) continue;
+    const storyProduceri = [...new Set(
+      (Array.isArray(d.storyProduceri) ? d.storyProduceri : []).map((c) => String(c).slice(0, 60)),
+    )].slice(0, MAX_STORY_PRODUCENTOV_DNA);
+    podla.set(iso, { iso, reziser: d.reziser ? String(d.reziser).slice(0, 60) : null, storyProduceri });
+    if (podla.size >= MAX_DENNE_ROLY) break;
+  }
+  return [...podla.values()];
+}
+
 async function handlePostData(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
@@ -404,6 +431,7 @@ async function handlePostData(request, env) {
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
     kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
     uzavierky: Array.isArray(body.uzavierky) ? ocistiUzavierky(body.uzavierky) : current.uzavierky,
+    denneRoly: Array.isArray(body.denneRoly) ? ocistiDenneRoly(body.denneRoly) : current.denneRoly,
     log: Array.isArray(body.log) ? body.log.slice(0, LOG_MAX) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,

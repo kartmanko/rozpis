@@ -34,7 +34,7 @@ Sú dôležitejšie než ktorýkoľvek riadok kódu, tak nech sú hneď navrchu:
 
 **Prihlásenie a role.** Prihlasuje sa mailom: appka pošle odkaz (Resend),
 kliknutím vznikne session cookie `f18_sess` na doméne `kartmanko.cc`. Rolí je
-niekoľko (`admin`, `kamera_lead`, `rezia_lead`, `stab`, …) a k nim patria
+niekoľko (`admin`, `kamera_admin`, `rezia_admin`, `produkcia_admin`, `stab`, `viewer`) a k nim patria
 oprávnenia v `src/permissions.js`. Server ich kontroluje sám: pri každom uložení
 porovná starý a nový stav a zamietne zmenu, ktorú daná rola robiť nesmie
 (`checkStateChange` v `worker/src/auth.js`) — appka je len pohodlie, nie ochrana.

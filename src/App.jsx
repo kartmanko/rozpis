@@ -16,6 +16,7 @@ import ImportPanel from "./components/ImportPanel";
 import TabulkaPanel from "./components/TabulkaPanel";
 import AdminPanel from "./components/AdminPanel";
 import ScheduleTable from "./components/ScheduleTable";
+import MojKalendar from "./components/MojKalendar";
 import BulkActionBar from "./components/BulkActionBar";
 import DayDetail from "./components/DayDetail";
 import NadPanel from "./components/NadPanel";
@@ -25,6 +26,7 @@ import LoginScreen from "./components/LoginScreen";
 import UsersPanel from "./components/UsersPanel";
 import SadzbyPanel from "./components/SadzbyPanel";
 import UzavierkyPanel from "./components/UzavierkyPanel";
+import DenneRolyPanel from "./components/DenneRolyPanel";
 import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
@@ -70,6 +72,7 @@ export default function App() {
   const [pendingDispo, setPendingDispoState] = useState([]); // návrhy z dispo mailov, čakajú na potvrdenie
   const [kontakty, setKontaktyState] = useState([]); // databáza kontaktov štábu a externých ľudí
   const [uzavierky, setUzavierkyState] = useState([]); // uzávierky mesiacov + história vyplateného (sekcia 6 briefu)
+  const [denneRoly, setDenneRolyState] = useState([]); // kto je v daný deň hlavný režisér a Story produceri (sekcia 4 briefu), jeden záznam na deň
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -93,6 +96,17 @@ export default function App() {
   const canEditCells = Boolean(me) && (mySections.length > 0 || (caps.ownOff && me.crewId));
   const canEditAll = Boolean(me) && mySections.length > 0; // vedúci a admin — hromadné úpravy, výmeny
   const canEdit = canEditAll; // deklarované skoro, nech ho môžu použiť efekty nižšie (skratky a pod.)
+
+  /* Kto smie appku vôbec prinútiť niečo uložiť — širšie než canEditCells (ten je
+     iba o bunkách rozpisu). Bez tohto by napr. admin produkcie (caps.sadzby,
+     caps.denneRoly, caps.reporty, caps.nad — ale žiadny mySections a spravidla
+     ani crewId) nikdy nevidel uložené vlastné zmeny v Sadzbách, Uzávierkach ani
+     v Denných rolách: debounced ukladanie nižšie by kvôli canEditCells===false
+     nikdy ani neodišlo na server. Server aj tak kontroluje všetko ešte raz
+     (checkStateChange) — toto je len brána, kedy sa vôbec skúsiť uložiť. */
+  const canSaveAnything = Boolean(me) && (
+    canEditCells || caps.crew || caps.nad || caps.pending || caps.users || caps.sadzby || caps.reporty || caps.denneRoly
+  );
 
   /* --- téma appky: svetlý / tmavý / auto (podľa systému) --- */
   const [theme, setThemeState] = useState(() => {
@@ -118,7 +132,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -268,6 +282,7 @@ export default function App() {
       setReportyState({});
       setKontaktyState(DEMO_DATA.kontakty || []);
       setUzavierkyState(DEMO_DATA.uzavierky || []);
+      setDenneRolyState(DEMO_DATA.denneRoly || []);
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -289,6 +304,7 @@ export default function App() {
       setPendingDispoState(d.pendingDispo || []);
       setKontaktyState(d.kontakty || []);
       setUzavierkyState(d.uzavierky || []);
+      setDenneRolyState(d.denneRoly || []);
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -296,7 +312,7 @@ export default function App() {
         crew: d.crew || [], cells: d.cells || {}, nad: d.nad || {}, sadzby: d.sadzby || {},
         chaty: d.chaty || {}, reporty: d.reporty || {}, dispo: d.dispo || {},
         pendingDispo: d.pendingDispo || [], kontakty: d.kontakty || [], uzavierky: d.uzavierky || [],
-        pendingHook: d.pendingHook || [], log: d.log || [],
+        denneRoly: d.denneRoly || [], pendingHook: d.pendingHook || [], log: d.log || [],
       };
       pokusyOZlucenie.current = 0;
       setConnError("");
@@ -350,7 +366,7 @@ export default function App() {
      Kto chce dáta okamžite, má v hlavičke "Obnoviť". */
   const poslednyRefresh = useRef(Date.now());
   useEffect(() => {
-    const mozeme = () => getApiBase() && me && (!canEditCells || !dirty);
+    const mozeme = () => getApiBase() && me && (!canSaveAnything || !dirty);
     const obnov = () => {
       if (!mozeme()) return;
       poslednyRefresh.current = Date.now();
@@ -370,12 +386,12 @@ export default function App() {
     document.addEventListener("visibilitychange", priNavrate);
 
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", priNavrate); };
-  }, [canEditCells, dirty, load, me]);
+  }, [canSaveAnything, dirty, load, me]);
 
   /* --- debounované ukladanie — v demo režime (bez Workera) sa iba nastaví "uložené" lokálne --- */
   const saveTimer = useRef(null);
   useEffect(() => {
-    if (!loaded || !canEditCells || conflict) return;
+    if (!loaded || !canSaveAnything || conflict) return;
     /* Ukladáme iba vtedy, keď človek naozaj niečo zmenil. Bez tejto podmienky sa
        zapisovalo aj po obyčajnom načítaní appky — a keďže server drží jedno
        spoločné číslo verzie, každý, kto ráno otvoril appku, posunul verziu a
@@ -389,7 +405,7 @@ export default function App() {
         return;
       }
       setSaving(true);
-      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log };
+      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log };
       try {
         const res = await saveData({ ...odoslane, baseVersion: version });
         setVersion(res.version);
@@ -426,6 +442,7 @@ export default function App() {
             setPendingDispoState(s.pendingDispo || []);
             setKontaktyState(s.kontakty || []);
             setUzavierkyState(s.uzavierky || []);
+            setDenneRolyState(s.denneRoly || []);
             setPendingHookState(s.pendingHook || []);
             setCells(zlucene.cells);
             setLog(zlucene.log);
@@ -434,7 +451,7 @@ export default function App() {
               crew: s.crew || [], cells: s.cells || {}, nad: s.nad || {}, sadzby: s.sadzby || {},
               chaty: s.chaty || {}, reporty: s.reporty || {}, dispo: s.dispo || {},
               pendingDispo: s.pendingDispo || [], kontakty: s.kontakty || [], uzavierky: s.uzavierky || [],
-              pendingHook: s.pendingHook || [], log: s.log || [],
+              denneRoly: s.denneRoly || [], pendingHook: s.pendingHook || [], log: s.log || [],
             };
             setDirty(true);
             setStatus("Medzitým ukladal niekto iný — zmeny som poskladal dokopy.");
@@ -463,7 +480,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log, zapisPokus]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, zapisPokus]);
 
   /* Keď telefónu nabehne signál, nečaká sa na ďalší odstup — skúsi sa hneď.
      Toto je ten bežný prípad: človek vyjde spoza stodoly a zmena má odletieť. */
@@ -853,6 +870,24 @@ export default function App() {
     setDirty(true);
   }, [addLog]);
 
+  /* Denné role (sekcia 4 briefu) — kto je v daný deň hlavný režisér a Story produceri.
+     Na rozdiel od uzávierok toto NIE JE append-only história: jeden deň = jeden
+     záznam (kľúčovaný "iso"), druhé uloženie pre ten istý deň predchádzajúce
+     priradenie jednoducho prepíše (rovnaká dohoda ako v ocistiDenneRoly na serveri). */
+  const ulozDennuRolu = useCallback((iso, { reziser, storyProduceri }) => {
+    setDenneRolyState((prev) => [
+      ...(prev || []).filter((d) => d.iso !== iso),
+      { iso, reziser: reziser || null, storyProduceri: storyProduceri || [] },
+    ]);
+    const menoZCrew = (id) => crew.find((c) => c.id === id)?.name || id;
+    const bits = [
+      reziser ? `režisér ${menoZCrew(reziser)}` : null,
+      storyProduceri?.length ? `Story: ${storyProduceri.map(menoZCrew).join(", ")}` : null,
+    ].filter(Boolean);
+    addLog(`Denné role na ${skDate(iso)}: ${bits.length ? bits.join(" · ") : "vyprázdnené"}`);
+    setDirty(true);
+  }, [crew, addLog]);
+
   /* --- výmena smeny (jeden krok späť/znova pre celú výmenu naraz) --- */
   const swap = (iso, aId, bId) => {
     const nameOf = (id) => crew.find((c) => c.id === id)?.name || "?";
@@ -1165,7 +1200,7 @@ export default function App() {
 
   const obnovOdlozene = useCallback(() => {
     if (!odlozene) return;
-    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log };
+    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log };
     /* Skladá sa tým istým pravidlom ako pri strete dvoch ľudí naraz: dopíšu sa
        iba moje bunky, cudzie ostanú tak, ako sú. Ak sa to prekrýva, radšej nič. */
     const zlucene = skusZlucit(odlozene.zaklad, odlozene.stav, teraz);
@@ -1178,7 +1213,7 @@ export default function App() {
     setDirty(true);
     setOdlozene(null);
     setStatus("Odložené zmeny vrátené — ukladám.");
-  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, pendingHook, log]);
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log]);
 
   const zahodOdlozene = useCallback(() => {
     zahodNeulozene();
@@ -1273,6 +1308,9 @@ export default function App() {
                 <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
                 {caps.sadzby && (
                   <button onClick={() => togglePanel("uzavierky")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Uzávierky mesiacov</button>
+                )}
+                {caps.denneRoly && (
+                  <button onClick={() => togglePanel("denneRoly")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Denné role</button>
                 )}
                 {caps.reporty && (
                   <button onClick={() => togglePanel("reporty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2 flex items-center gap-1.5">
@@ -1433,6 +1471,16 @@ export default function App() {
           onClose={() => setPanel(null)}
         />
       )}
+      {panel === "denneRoly" && caps.denneRoly && (
+        <DenneRolyPanel
+          denneRoly={denneRoly}
+          crew={crew}
+          days={days}
+          canEdit={!!caps.denneRoly}
+          onUloz={ulozDennuRolu}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
       {panel === "reporty" && caps.reporty && (
@@ -1486,22 +1534,28 @@ export default function App() {
 
       {/* rezerva miesta dole, nech fixný panel (editor bunky / hromadný výber) neprekrýva posledné riadky tabuľky */}
       <div style={{ paddingBottom: bulkMode ? 250 : sel && canEditCells ? 190 : 0 }}>
-        <ScheduleTable
-          days={filteredDays}
-          crew={filteredCrew}
-          cells={cells}
-          cellOf={cellOf}
-          canEdit={canEditCells}
-          bulkMode={bulkMode}
-          selectedKeys={selectedKeys}
-          onCellClick={handleCellClick}
-          onDragSelect={onDragSelect}
-          onSelectColumn={onSelectColumn}
-          onSelectRow={onSelectRow}
-          onMoveCrew={moveCrew}
-          onDayClick={setDayDetailIso}
-          openDayIso={dayDetailIso}
-        />
+        {me?.role === "stab" ? (
+          // Štáb nevidí celú tabuľku posádky — iba svoj vlastný mesačný kalendár
+          // (sekcia 4 briefu, "Domov štábu"). Ostatné role vidia tabuľku ako doteraz.
+          <MojKalendar me={me} crew={crew} days={days} cellOf={cellOf} onCellClick={handleCellClick} />
+        ) : (
+          <ScheduleTable
+            days={filteredDays}
+            crew={filteredCrew}
+            cells={cells}
+            cellOf={cellOf}
+            canEdit={canEditCells}
+            bulkMode={bulkMode}
+            selectedKeys={selectedKeys}
+            onCellClick={handleCellClick}
+            onDragSelect={onDragSelect}
+            onSelectColumn={onSelectColumn}
+            onSelectRow={onSelectRow}
+            onMoveCrew={moveCrew}
+            onDayClick={setDayDetailIso}
+            openDayIso={dayDetailIso}
+          />
+        )}
       </div>
 
       {dayDetailIso && (

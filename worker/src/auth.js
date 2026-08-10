@@ -20,13 +20,23 @@ import { kesovane, prepisKes } from "./kes.js";
 
 /* ---------- role ---------- */
 
-export const ROLE_KEYS = ["admin", "kamera_lead", "rezia_lead", "produkcny", "stab", "viewer"];
+/* Finálna mapa rolí (sekcia 4 briefu): hlavný admin + traja "menší admini" podľa
+   sekcie rozpisu (kamera / produkcia / réžia+Story+loggeri) + štáb + viewer.
+   Predtým sa volali kamera_lead/rezia_lead/produkcny — premenované na
+   kamera_admin/rezia_admin/produkcia_admin, práva a rozsah ostávajú rovnaké ako
+   predtým, iba mená. Staré hodnoty uložené v KV z čias pred premenovaním sa
+   prekladajú automaticky pri každom čítaní (viď LEGACY_ROLE_MAP a readUsers). */
+export const ROLE_KEYS = ["admin", "kamera_admin", "rezia_admin", "produkcia_admin", "stab", "viewer"];
+
+// Staré role -> nové, prekladá sa pri každom readUsers() (nie je to jednorazová
+// migrácia dát v KV, appka sa sama uzdraví aj keby sa users_v1 nikdy neprepísal).
+const LEGACY_ROLE_MAP = { kamera_lead: "kamera_admin", rezia_lead: "rezia_admin", produkcny: "produkcia_admin" };
 
 export const ROLE_LABELS = {
   admin: "Hlavný admin",
-  kamera_lead: "Vedúci kamery",
-  rezia_lead: "Vedúci réžie a loggerov",
-  produkcny: "Hlavný produkčný",
+  kamera_admin: "Admin kamery",
+  rezia_admin: "Admin réžie, Story a loggerov",
+  produkcia_admin: "Admin produkcie",
   stab: "Štáb",
   viewer: "Viewer",
 };
@@ -34,30 +44,34 @@ export const ROLE_LABELS = {
 // Ktoré profesie (stĺpce rozpisu) smie rola prepisovať celé.
 const ROLE_SECTIONS = {
   admin: ["kamera", "rezia", "logger"],
-  kamera_lead: ["kamera"],
-  rezia_lead: ["rezia", "logger"],
-  produkcny: [],
+  kamera_admin: ["kamera"],
+  rezia_admin: ["rezia", "logger"],
+  produkcia_admin: [],
   stab: [],
   viewer: [],
 };
 
 // Ostatné práva.
 // "sadzby" = meniť denné sadzby profesií (Fáza 2). Sú to peniaze, preto ich smie
-//            prepisovať iba hlavný admin a hlavný produkčný — vedúci sekcií nie.
+//            prepisovať iba hlavný admin a admin produkcie — sekční admini nie.
 // "vykazVsetkych" = vidieť výkazy celého štábu, nielen svoj vlastný.
 // "reporty" = vidieť a spracovať denné reporty (sekcia 3 finálneho briefu — reporty
-//             smú čítať iba réžia/loggeri a Story produceri, nie kamera). "rezia_lead"
-//             už dnes pokrýva réžiu aj loggerov (viď ROLE_SECTIONS vyššie). Vlastnú
-//             rolu "Story producer" appka zatiaľ nemá — kým ju neprinesie finálna
-//             mapa rolí (sekcia 4 briefu), zastupuje ju najbližšia existujúca rola
-//             "produkcny". Až príde vlastná rola, toto sa prepojí na ňu namiesto.
+//             smú čítať iba réžia/loggeri/Story, nie kamera). "rezia_admin" pokrýva
+//             réžiu, loggerov aj Story (viď ROLE_SECTIONS aj jeho nová menovka
+//             vyššie). "produkcia_admin" má reporty ponechané z čias, keď zastupoval
+//             ešte neexistujúcu rolu Story producer — teraz je to skôr "aj produkcia
+//             má vidieť, čo sa deje" než nutnosť.
+// "denneRoly" = prideľovať pre konkrétny deň hlavného režiséra a Story producerov
+//               (nová "denná" rola, sekcia 4 briefu — pozor, NIE je to to isté ako
+//               trvalá rola v ROLE_KEYS; je to iba priradenie na jeden deň, appka
+//               si ho pamätá v samostatnom poli "denneRoly", viď index.js).
 const ROLE_CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true },
-  kamera_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false },
-  rezia_lead: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true },
-  produkcny: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
+  kamera_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false, denneRoly: false },
+  rezia_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true, denneRoly: true },
+  produkcia_admin: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
 };
 
 export function roleCaps(role) {
@@ -136,7 +150,11 @@ export async function readUsers(env) {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // preklad starých rolí (kamera_lead/rezia_lead/produkcny) na nové mená —
+    // viď LEGACY_ROLE_MAP vyššie; robí sa tu, nie iba pri uložení, nech sa appka
+    // sama uzdraví aj bez toho, aby niekto znova uložil zoznam používateľov.
+    return parsed.map((u) => (u && LEGACY_ROLE_MAP[u.role] ? { ...u, role: LEGACY_ROLE_MAP[u.role] } : u));
   } catch (e) {
     // Poškodený users_v1 by inak znamenal, že sa naraz odhlási celý štáb a
     // nikto by nevedel prečo — nech je to aspoň vidno v logu.
@@ -671,6 +689,13 @@ export function checkStateChange(user, current, next) {
   // zmeny vo fronte z WhatsApp bridge
   if (JSON.stringify(current.pendingHook || []) !== JSON.stringify(next.pendingHook || [])) {
     if (!caps.pending) return { ok: false, error: "Frontu z WhatsAppu smú spracovať iba vedúci a admin." };
+  }
+
+  // denné role (sekcia 4 briefu) — kto je v daný deň hlavný režisér a kto Story
+  // produceri. Prideľuje iba admin a admini réžie/produkcie (rovnaká skupina, čo
+  // dnes rozhoduje o réžii a Story), kamera nie.
+  if (JSON.stringify(current.denneRoly || []) !== JSON.stringify(next.denneRoly || [])) {
+    if (!caps.denneRoly) return { ok: false, error: "Denné role (režisér, Story produceri) smie priraďovať iba admin, réžia alebo produkcia." };
   }
 
   // zmeny v jednotlivých bunkách rozpisu
