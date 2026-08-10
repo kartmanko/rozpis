@@ -230,10 +230,37 @@ export async function mailKey(env) {
   return (await env.ROZPIS_KV.get(MAIL_KEY_KV)) || "";
 }
 
-async function sendMagicMail(env, email, link) {
+/**
+ * Pošle jeden mail cez Resend. Spoločné miesto pre magic-link prihlásenie aj
+ * pre odoslanie dispozície (sekcia 2 briefu) — nech je tajomstvo (mailKey) aj
+ * ošetrenie chyby na jednom mieste, nie duplikované v každom volajúcom.
+ */
+export async function posliMail(env, { to, subject, html, text }) {
   const apiKey = await mailKey(env);
   if (!apiKey) throw new Error("Kľúč na odosielanie mailov nie je nastavený na serveri.");
 
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.MAIL_FROM || "FARMA rozpis <farma@kartmanko.cc>",
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error("Resend odmietol mail: " + t.slice(0, 300));
+  }
+}
+
+async function sendMagicMail(env, email, link) {
   const html = `<!doctype html><html lang="sk"><body style="margin:0;background:#f5f5f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:520px;margin:0 auto;padding:32px 20px;">
     <div style="background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e7e5e4;">
@@ -251,25 +278,12 @@ async function sendMagicMail(env, email, link) {
   </div>
 </body></html>`;
 
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.MAIL_FROM || "FARMA rozpis <farma@kartmanko.cc>",
-      to: [email],
-      subject: "Prihlásenie do rozpisu FARMA 18",
-      html,
-      text: `Prihlásenie do rozpisu FARMA 18\n\nOtvor tento odkaz (platí 20 minút):\n${link}\n\nAk si o prihlásenie nežiadal, mail ignoruj.`,
-    }),
+  await posliMail(env, {
+    to: email,
+    subject: "Prihlásenie do rozpisu FARMA 18",
+    html,
+    text: `Prihlásenie do rozpisu FARMA 18\n\nOtvor tento odkaz (platí 20 minút):\n${link}\n\nAk si o prihlásenie nežiadal, mail ignoruj.`,
   });
-
-  if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error("Resend odmietol mail: " + t.slice(0, 300));
-  }
 }
 
 /* ---------- endpointy ---------- */

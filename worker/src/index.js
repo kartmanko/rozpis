@@ -25,6 +25,10 @@
  *                    Tento endpoint je IBA na čítanie správ z chatu — nikdy nič neposiela naspäť
  *                    do WhatsApp skupiny (žiadne volanie na send API bridge-u odtiaľto).
  *
+ *   POST /dispo/odoslat/nahlad -> zostaví mail z ručne poskladanej dispo, ale NEPOŠLE ho (vedúci a admin)
+ *   POST /dispo/odoslat        -> pošle ten istý mail cez Resend (vedúci a admin) — appka volá toto
+ *                                  vždy až po tom, čo človek uvidel náhľad a odoslanie potvrdil
+ *
  * Potrebné bindingy/secrety (pozri wrangler.toml a README.md):
  *   KV:      ROZPIS_KV
  *   secrety: ADMIN_PASSWORD, ANTHROPIC_API_KEY, HOOK_SECRET
@@ -45,6 +49,7 @@ import {
   rovnakeTajomstvo,
   logJeIbaDoplneny,
   LOG_MAX,
+  posliMail,
 } from "./auth.js";
 import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
 import { sKesou, kesovane, prepisKes } from "./kes.js";
@@ -1255,6 +1260,171 @@ async function handleDispoMail(request, env) {
   return json(v, 200, env);
 }
 
+/* ---------- builder dispozícií — admin skladá dispo priamo v appke (sekcia 2 briefu) ----------
+   Doteraz appka vedela iba PRIJAŤ dispo mail a dať ho na potvrdenie (handleDispoMail vyššie).
+   Toto je opačný smer: admin/vedúci zostaví dispo v appke a appka z tých istých dát:
+     1. ju uloží ku dňu (POST /data, rovnaká cesta ako pri potvrdení mailu — bez zmeny),
+     2. vie ju poslať mailom štábu, ktorý v ten deň pracuje.
+   Automatický mail sa NIKDY neposiela sám od seba — appka najprv vždy ukáže náhľad
+   (POST /dispo/odoslat/nahlad) a odoslanie (POST /dispo/odoslat) je vždy samostatný,
+   vedomý krok. To je jedno z pevných pravidiel appky, nie len tohto endpointu. */
+
+const SK_DOW = ["nedeľa", "pondelok", "utorok", "streda", "štvrtok", "piatok", "sobota"];
+const MAX_HARMONOGRAM_POLOZIEK = 60;
+const MAX_SKUPIN = 20;
+const MAX_LUDI_V_SKUPINE = 60;
+const MAX_DALSICH_PRIJEMCOV = 30;
+const MAX_TEXT_POLE = 4000;
+
+function ocistiBlokDispo(body) {
+  const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(body.datum || "")) ? body.datum : "";
+  const harmonogram = (Array.isArray(body.harmonogram) ? body.harmonogram : [])
+    .slice(0, MAX_HARMONOGRAM_POLOZIEK)
+    .map((h) => ({ cas: String(h?.cas || "").slice(0, 10), text: String(h?.text || "").slice(0, 200) }))
+    .filter((h) => h.cas || h.text);
+  const skupiny = (Array.isArray(body.skupiny) ? body.skupiny : [])
+    .slice(0, MAX_SKUPIN)
+    .map((s) => ({
+      nazov: String(s?.nazov || "").slice(0, 80),
+      ludia: (Array.isArray(s?.ludia) ? s.ludia : []).slice(0, MAX_LUDI_V_SKUPINE).map((id) => String(id).slice(0, 60)),
+    }))
+    .filter((s) => s.nazov || s.ludia.length);
+  const zvyraznene = (Array.isArray(body.zvyraznene) ? body.zvyraznene : []).slice(0, 200).map((id) => String(id).slice(0, 60));
+  const dalsiPrijemcovia = (Array.isArray(body.dalsiPrijemcovia) ? body.dalsiPrijemcovia : [])
+    .slice(0, MAX_DALSICH_PRIJEMCOV)
+    .map((m) => String(m || "").trim().toLowerCase())
+    .filter((m) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m));
+  return {
+    datum,
+    miesto: String(body.miesto || "").slice(0, MAX_TEXT_POLE),
+    pocasie: String(body.pocasie || "").slice(0, 200),
+    poznamky: String(body.poznamky || "").slice(0, MAX_TEXT_POLE),
+    harmonogram,
+    skupiny,
+    zvyraznene,
+    dalsiPrijemcovia,
+  };
+}
+
+/** Meno človeka zo štábu podľa crewId — do mailu aj do zoznamu príjemcov. */
+function crewMeno(crew, crewId) {
+  return (crew || []).find((c) => String(c.id) === String(crewId))?.name || "";
+}
+
+/** Mail pre daného crewId z databázy kontaktov — iba interné, iba keď majú mail vyplnený. */
+function crewMail(kontakty, crewId) {
+  const k = (kontakty || []).find((x) => x.interny && String(x.crewId) === String(crewId) && x.aktivny !== false);
+  return k?.mail ? String(k.mail).trim() : "";
+}
+
+/** Komu sa dispo pošle: mail každého zo skupín (podľa databázy kontaktov) + ručne dopísaní. */
+function dispoPrijemcovia(blok, kontakty) {
+  const mnozina = new Map(); // mail (lowercase) -> mail (pôvodný tvar)
+  for (const s of blok.skupiny) {
+    for (const crewId of s.ludia) {
+      const mail = crewMail(kontakty, crewId);
+      if (mail) mnozina.set(mail.toLowerCase(), mail);
+    }
+  }
+  for (const mail of blok.dalsiPrijemcovia) mnozina.set(mail.toLowerCase(), mail);
+  return [...mnozina.values()];
+}
+
+function renderDispoMail(blok, crew) {
+  const d = new Date(blok.datum + "T00:00:00Z");
+  const denText = Number.isNaN(d.getTime())
+    ? blok.datum
+    : `${SK_DOW[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`;
+  const subject = `Dispozícia — ${denText}`;
+
+  const riadkyHarmonogram = blok.harmonogram.map((h) => `${h.cas ? h.cas + " — " : ""}${h.text}`);
+  const skupinyText = blok.skupiny
+    .filter((s) => s.ludia.length)
+    .map((s) => {
+      const mena = s.ludia.map((id) => {
+        const meno = crewMeno(crew, id) || "(neznámy)";
+        return blok.zvyraznene.includes(id) ? `${meno} *` : meno;
+      });
+      return `${s.nazov || "(bez názvu)"}: ${mena.join(", ")}`;
+    });
+
+  const textCasti = [
+    `Dispozícia — ${denText}`,
+    blok.miesto ? `Miesto: ${blok.miesto}` : "",
+    blok.pocasie ? `Počasie: ${blok.pocasie}` : "",
+    riadkyHarmonogram.length ? "Harmonogram:\n" + riadkyHarmonogram.join("\n") : "",
+    skupinyText.length ? "Kto pracuje:\n" + skupinyText.join("\n") : "",
+    blok.poznamky ? `Poznámky:\n${blok.poznamky}` : "",
+  ].filter(Boolean);
+  const text = textCasti.join("\n\n");
+
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const html = `<!doctype html><html lang="sk"><body style="margin:0;background:#f5f5f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:32px 20px;">
+    <div style="background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e7e5e4;">
+      <h1 style="margin:0 0 4px;font-size:20px;color:#1c1917;">Dispozícia</h1>
+      <p style="margin:0 0 18px;font-size:14px;color:#78716c;text-transform:capitalize;">${escapeHtml(denText)}</p>
+      ${blok.miesto || blok.pocasie ? `<p style="margin:0 0 14px;font-size:14px;color:#44403c;">${[blok.miesto && `<b>Miesto:</b> ${escapeHtml(blok.miesto)}`, blok.pocasie && `<b>Počasie:</b> ${escapeHtml(blok.pocasie)}`].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>` : ""}
+      ${riadkyHarmonogram.length ? `<div style="margin:0 0 16px;"><div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a8a29e;margin-bottom:6px;">Harmonogram</div>${riadkyHarmonogram.map((r) => `<div style="font-size:14px;color:#292524;padding:2px 0;">${escapeHtml(r)}</div>`).join("")}</div>` : ""}
+      ${skupinyText.length ? `<div style="margin:0 0 16px;"><div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a8a29e;margin-bottom:6px;">Kto pracuje</div>${skupinyText.map((r) => `<div style="font-size:14px;color:#292524;padding:2px 0;">${escapeHtml(r)}</div>`).join("")}</div>` : ""}
+      ${blok.poznamky ? `<div style="font-size:13px;color:#57534e;white-space:pre-wrap;border-top:1px solid #e7e5e4;padding-top:14px;">${escapeHtml(blok.poznamky)}</div>` : ""}
+    </div>
+  </div>
+</body></html>`;
+
+  return { subject, html, text };
+}
+
+async function handlePostDispoOdoslatNahlad(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  if (!roleCaps(user.role).pending) return json({ error: "Na odosielanie dispo mailov nemáš právo." }, 403, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+  const blok = ocistiBlokDispo(body);
+  if (!blok.datum) return json({ error: "Chýba platný dátum." }, 400, env);
+
+  const state = await readState(env);
+  const prijemcovia = dispoPrijemcovia(blok, state.kontakty);
+  const { subject, html, text } = renderDispoMail(blok, state.crew);
+  return json({ subject, html, text, prijemcovia }, 200, env);
+}
+
+async function handlePostDispoOdoslat(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+  if (!roleCaps(user.role).pending) return json({ error: "Na odosielanie dispo mailov nemáš právo." }, 403, env);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Neplatné telo požiadavky." }, 400, env);
+  }
+  const blok = ocistiBlokDispo(body);
+  if (!blok.datum) return json({ error: "Chýba platný dátum." }, 400, env);
+
+  const state = await readState(env);
+  const prijemcovia = dispoPrijemcovia(blok, state.kontakty);
+  if (!prijemcovia.length) {
+    return json({ error: "Nemá komu prísť mail — nikto zo skladby dňa nemá mail v databáze kontaktov." }, 400, env);
+  }
+  const { subject, html, text } = renderDispoMail(blok, state.crew);
+
+  try {
+    await posliMail(env, { to: prijemcovia, subject, html, text });
+  } catch (e) {
+    console.log("odoslanie dispo mailu zlyhalo:", e && e.message);
+    return json({ error: "Odoslanie zlyhalo: " + (e && e.message ? e.message : "neznáma chyba") }, 502, env);
+  }
+  return json({ ok: true, poslaneNa: prijemcovia }, 200, env);
+}
+
 /* ---------- upozornenia do telefónu (Fáza 6) ---------- */
 
 /* Verejný kľúč servera. Appka ho potrebuje na to, aby si u výrobcu prehliadača
@@ -1459,6 +1629,13 @@ async function smeruj(request, env, ctx) {
   // --- dispozícia mailom (Fáza 5) ---
   if (url.pathname === "/dispo/mail" && request.method === "POST") {
     return handleDispoMail(request, env);
+  }
+  // --- builder dispozícií — admin skladá a posiela dispo z appky (sekcia 2 briefu) ---
+  if (url.pathname === "/dispo/odoslat/nahlad" && request.method === "POST") {
+    return handlePostDispoOdoslatNahlad(request, env);
+  }
+  if (url.pathname === "/dispo/odoslat" && request.method === "POST") {
+    return handlePostDispoOdoslat(request, env);
   }
   // --- upozornenia do telefónu (Fáza 6) ---
   if (url.pathname === "/push/key" && request.method === "GET") {
