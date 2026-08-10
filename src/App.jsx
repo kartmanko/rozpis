@@ -28,6 +28,7 @@ import VykazyPanel from "./components/VykazyPanel";
 import ChatyPanel from "./components/ChatyPanel";
 import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
+import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
@@ -115,7 +116,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo" | "kontakty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
@@ -690,6 +691,31 @@ export default function App() {
     }
   }, [addLog, commitCells]);
 
+  /* Zostavenie dispo v appke (sekcia 2 briefu) — na rozdiel od potvrdDispo vyššie
+     (ktoré preberá NÁVRH z mailu) tu si celý obsah vymýšľa človek priamo v appke.
+     Uloženie do rozpisu je nezávislé od poslania mailom — dá sa uložiť bez poslania
+     aj poslať bez uloženia (napr. keď sa iba dolaďuje text mailu). */
+  const ulozDispoBlok = useCallback((datum, blok) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(datum || ""))) return;
+    setDispoState((prev) => ({
+      ...prev,
+      [datum]: {
+        ...(prev[datum] || {}),
+        datum,
+        miesto: blok.miesto || "",
+        pocasie: blok.pocasie || "",
+        harmonogram: blok.harmonogram || [],
+        poznamky: blok.poznamky || "",
+        skupiny: blok.skupiny || [],
+        zvyraznene: blok.zvyraznene || [],
+        dalsiPrijemcovia: blok.dalsiPrijemcovia || [],
+        potvrdene: new Date().toISOString(),
+      },
+    }));
+    addLog(`Dispo na ${datum} zostavené a uložené do rozpisu`);
+    setDirty(true);
+  }, [addLog]);
+
   const zahodDispo = useCallback((id) => {
     setPendingDispoState((prev) => prev.filter((x) => x.id !== id));
     addLog("Dispo mail zahodený");
@@ -1204,6 +1230,9 @@ export default function App() {
                   Dispo
                   {caps.pending && dispoNaPotvrdenie > 0 && <span className="ml-auto min-w-[16px] h-[16px] px-1 rounded-full bg-f-accent text-f-ink text-[9px] font-bold flex items-center justify-center">{dispoNaPotvrdenie}</span>}
                 </button>
+                {caps.pending && (
+                  <button onClick={() => togglePanel("dispoBuilder")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Zostaviť dispo</button>
+                )}
                 <button onClick={() => togglePanel("log")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">História</button>
                 <button onClick={() => togglePanel("admin")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Môj účet</button>
                 {caps.users && (
@@ -1360,6 +1389,9 @@ export default function App() {
           onZrusPotvrdene={zrusPotvrdeneDispo}
           onClose={() => setPanel(null)}
         />
+      )}
+      {panel === "dispoBuilder" && caps.pending && (
+        <DispoBuilderPanel dispo={dispo} crew={crew} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
       )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />

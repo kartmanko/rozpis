@@ -179,6 +179,20 @@ export async function saveUsers(users) {
   return jsonPost("/auth/users", { users });
 }
 
+/* ---------- builder dispozícií (sekcia 2 finálneho briefu) ---------- */
+// Vždy náhľad pred odoslaním — appka nikdy nesmie poslať mail bez toho, aby ho
+// človek najprv videl presne tak, ako pôjde von.
+
+/** Zostaví mail z poskladanej dispo, ale NEPOŠLE ho. */
+export async function dispoOdoslatNahlad(blok) {
+  return jsonPost("/dispo/odoslat/nahlad", blok);
+}
+
+/** Ten istý mail naozaj pošle cez Resend. */
+export async function dispoOdoslat(blok) {
+  return jsonPost("/dispo/odoslat", blok);
+}
+
 /* ---------- upozornenia do telefónu (Fáza 6) ---------- */
 
 /** Verejný kľúč servera pre odber upozornení. Server si ho vyrobil sám, nie je nikde v kóde. */
