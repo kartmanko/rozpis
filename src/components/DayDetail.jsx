@@ -1,5 +1,6 @@
 import { cycleInfo, toUTC } from "../dateUtils";
 import { REHEARSALS, ROLES, SK_DAYS_FULL } from "../constants";
+import { kontaktPreCrew, telOdkaz, mailOdkaz } from "../kontakty";
 
 const SHIFT_ORDER = { A: 0, B: 1, C: 2, R: 3 };
 const CHIP_BADGE = {
@@ -9,7 +10,7 @@ const CHIP_BADGE = {
   R: "bg-f-r",
 };
 
-export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }) {
+export default function DayDetail({ iso, crew, cellOf, reporty, dispo, kontakty, onClose }) {
   const ci = cycleInfo(iso);
   const reh = REHEARSALS.includes(iso);
   const d = new Date(toUTC(iso));
@@ -54,13 +55,24 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }
             <div key={r.key} className="flex gap-2.5 items-start py-2.5 border-t border-f-hair">
               <div className="text-[9.5px] font-bold tracking-wider text-f-faint w-14 flex-none pt-1 uppercase">{r.label}</div>
               <div className="flex flex-wrap gap-1.5">
-                {working.map(({ c, x }) => (
-                  <span key={c.id} className="text-xs font-semibold pl-1 pr-2.5 py-1 rounded-lg bg-f-panel2 text-f-text/90 border border-f-border flex gap-1.5 items-center">
-                    {x.shift && <u className={`not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 ${CHIP_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</u>}
-                    {x.duel && <u className="not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 bg-f-duel">D</u>}
-                    {c.name}
-                  </span>
-                ))}
+                {working.map(({ c, x }) => {
+                  // klik-na-zavolanie (sekcia 5 briefu) — iba keď má človek v databáze kontaktov telefón
+                  const kontakt = kontaktPreCrew(kontakty, c.id);
+                  const tel = telOdkaz(kontakt?.telefon);
+                  return (
+                    <span key={c.id} className="text-xs font-semibold pl-1 pr-2.5 py-1 rounded-lg bg-f-panel2 text-f-text/90 border border-f-border flex gap-1.5 items-center">
+                      {x.shift && <u className={`not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 ${CHIP_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</u>}
+                      {x.duel && <u className="not-italic font-mono text-[10.5px] font-bold text-f-ink rounded px-1.5 py-0.5 bg-f-duel">D</u>}
+                      {tel ? (
+                        <a href={tel} onClick={(e) => e.stopPropagation()} className="text-f-text/90 hover:text-f-accent underline decoration-dotted underline-offset-2">
+                          {c.name}
+                        </a>
+                      ) : (
+                        c.name
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           );
@@ -104,13 +116,20 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, onClose }
           <div className="border-t border-f-hair pt-2.5 mt-2.5">
             <div className="text-[9.5px] font-bold tracking-wider text-f-faint uppercase mb-1.5">Kontakty na produkciu</div>
             <div className="space-y-1">
-              {denneDispo.kontakty.map((k, i) => (
-                <div key={i} className="text-[12.5px] text-f-text flex flex-wrap gap-x-1.5">
-                  <span className="font-semibold">{k.meno}</span>
-                  {k.rola && <span className="text-f-faint2">({k.rola})</span>}
-                  <a href={`tel:${k.telefon}`} className="text-f-accent font-mono">{k.telefon}</a>
-                </div>
-              ))}
+              {denneDispo.kontakty.map((k, i) => {
+                const tel = telOdkaz(k.telefon);
+                return (
+                  <div key={i} className="text-[12.5px] text-f-text flex flex-wrap gap-x-1.5">
+                    <span className="font-semibold">{k.meno}</span>
+                    {k.rola && <span className="text-f-faint2">({k.rola})</span>}
+                    {tel ? (
+                      <a href={tel} className="text-f-accent font-mono">{k.telefon}</a>
+                    ) : (
+                      k.telefon && <span className="text-f-faint2 font-mono">{k.telefon}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

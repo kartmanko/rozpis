@@ -1412,6 +1412,7 @@ export default function App() {
           cellOf={cellOf}
           reporty={reporty}
           dispo={dispo}
+          kontakty={kontakty}
           onClose={() => setDayDetailIso(null)}
         />
       )}

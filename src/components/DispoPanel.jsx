@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { toUTC } from "../dateUtils";
 import { SK_DAYS_FULL } from "../constants";
+import { telOdkaz } from "../kontakty";
 
 /* Dispo maily (Fáza 5).
 
@@ -155,13 +156,20 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
                       {(n.kontakty || []).length > 0 && (
                         <div className="rounded-md bg-f-panel border border-f-border p-2 space-y-1">
                           <div className="text-[10px] font-bold uppercase tracking-wider text-f-faint">Kontakty na produkciu</div>
-                          {n.kontakty.map((k, i) => (
-                            <div key={i} className="text-[11.5px] text-f-text flex flex-wrap gap-x-1.5">
-                              <span className="font-bold">{k.meno}</span>
-                              {k.rola && <span className="text-f-faint2">({k.rola})</span>}
-                              <a href={`tel:${k.telefon}`} className="text-f-accent font-mono" onClick={(e) => e.stopPropagation()}>{k.telefon}</a>
-                            </div>
-                          ))}
+                          {n.kontakty.map((k, i) => {
+                            const tel = telOdkaz(k.telefon);
+                            return (
+                              <div key={i} className="text-[11.5px] text-f-text flex flex-wrap gap-x-1.5">
+                                <span className="font-bold">{k.meno}</span>
+                                {k.rola && <span className="text-f-faint2">({k.rola})</span>}
+                                {tel ? (
+                                  <a href={tel} className="text-f-accent font-mono" onClick={(e) => e.stopPropagation()}>{k.telefon}</a>
+                                ) : (
+                                  k.telefon && <span className="text-f-faint2 font-mono">{k.telefon}</span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

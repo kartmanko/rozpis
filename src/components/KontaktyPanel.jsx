@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { telOdkaz, mailOdkaz } from "../kontakty";
 
 /* Databáza kontaktov štábu a externých ľudí (sekcia 1 finálneho briefu).
 
@@ -90,19 +91,29 @@ export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) 
                 placeholder="funkcia / rola"
                 className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-32"
               />
-              <input
-                type="email"
-                value={k.mail || ""}
-                onChange={(e) => patch(k.id, { mail: e.target.value })}
-                placeholder="mail"
-                className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-40"
-              />
-              <input
-                value={k.telefon || ""}
-                onChange={(e) => patch(k.id, { telefon: e.target.value })}
-                placeholder="telefón"
-                className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-32"
-              />
+              <div className="flex items-center gap-1 grow min-w-40">
+                <input
+                  type="email"
+                  value={k.mail || ""}
+                  onChange={(e) => patch(k.id, { mail: e.target.value })}
+                  placeholder="mail"
+                  className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-0"
+                />
+                {mailOdkaz(k.mail) && (
+                  <a href={mailOdkaz(k.mail)} title="Napísať mail" className="text-f-accent px-1 shrink-0">✉</a>
+                )}
+              </div>
+              <div className="flex items-center gap-1 grow min-w-32">
+                <input
+                  value={k.telefon || ""}
+                  onChange={(e) => patch(k.id, { telefon: e.target.value })}
+                  placeholder="telefón"
+                  className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text placeholder:text-f-faint2 grow min-w-0"
+                />
+                {telOdkaz(k.telefon) && (
+                  <a href={telOdkaz(k.telefon)} title="Zavolať" className="text-f-accent px-1 shrink-0">☎</a>
+                )}
+              </div>
               {k.interny && (
                 <select
                   value={k.crewId || ""}
