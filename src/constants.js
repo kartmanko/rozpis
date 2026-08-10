@@ -16,11 +16,17 @@ export const DEFAULT_NAMES = [
   "Martin", "Jakub Balko", "Radoslav Hajnoš",
 ];
 
-// Role štábu — jeden zdieľaný dátový model, tabuľka sa iba filtruje podľa aktívnej role.
+// Sekcie štábu (sekcia 2 briefu) — päť sekcií, každá so svojimi ľuďmi a smenami,
+// tabuľka sa iba filtruje podľa aktívnej záložky. "story" (Story produceri) je
+// vlastná sekcia s vlastnými ľuďmi — nie to isté ako denná rola "Story producer
+// dňa" (tá je v denneRoly, viď worker/src/index.js a DenneRolyPanel.jsx). Admin
+// réžie spravuje réžiu, Story aj loggerov naraz (viď ROLE_SECTIONS v auth.js).
 export const ROLES = [
   { key: "kamera", label: "Kamery" },
   { key: "rezia", label: "Réžia" },
+  { key: "story", label: "Story produceri" },
   { key: "logger", label: "Loggeri" },
+  { key: "produkcia", label: "Produkcia" },
 ];
 export const ROLE_LABELS = Object.fromEntries(ROLES.map((r) => [r.key, r.label]));
 

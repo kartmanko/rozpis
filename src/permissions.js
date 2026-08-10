@@ -17,12 +17,13 @@ export const USER_ROLES = [
 
 export const USER_ROLE_LABELS = Object.fromEntries(USER_ROLES.map((r) => [r.key, r.label]));
 
-// Ktoré profesie smie rola prepisovať celé.
+// Ktoré profesie smie rola prepisovať celé — päť sekcií štábu (sekcia 2 briefu),
+// zrkadlí worker/src/auth.js.
 const SECTIONS = {
-  admin: ["kamera", "rezia", "logger"],
+  admin: ["kamera", "rezia", "story", "logger", "produkcia"],
   kamera_admin: ["kamera"],
-  rezia_admin: ["rezia", "logger"],
-  produkcia_admin: [],
+  rezia_admin: ["rezia", "story", "logger"],
+  produkcia_admin: ["produkcia"],
   stab: [],
   viewer: [],
 };

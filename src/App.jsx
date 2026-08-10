@@ -212,35 +212,51 @@ export default function App() {
 
   /* --- overenie prihlásenia pri štarte ---
      Ak appku otvoril prihlasovací odkaz z mailu (…/?login=TOKEN), token sa hneď
-     vymení za session cookie a z adresy sa odstráni, nech sa nedá omylom preposlať. */
+     vymení za session cookie a z adresy sa odstráni, nech sa nedá omylom preposlať.
+
+     initPromiseRef: v dev režime React (StrictMode) sa tento efekt schválne spustí
+     dvakrát na skúšku. Predtým to spúšťalo CELÝ blok dvakrát nezávisle — a keďže
+     prihlasovací token je jednorazový, druhé odoslanie ho už našlo spotrebované
+     prvým behom a appku to vrátilo naspäť na prihlásenie (aj keď prvý beh v skutočnosti
+     uspel, len jeho výsledok zahodilo "cancelled"). Teraz sa skutočná práca spustí
+     len raz (uloží sa jej Promise do refu, ktorý prežije oba behy) a KAŽDÝ beh
+     efektu sa na ňu iba napojí cez .then — použije sa výsledok toho behu, ktorý
+     v tom momente nie je "cancelled", nie výsledok konkrétneho volania. */
+  const initPromiseRef = useRef(null);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      if (demoMode) {
-        if (!cancelled) setMe(DEMO_USER);
-        return;
-      }
-      const url = new URL(window.location.href);
-      const token = url.searchParams.get("login");
-      if (token) {
+
+    if (!initPromiseRef.current) {
+      initPromiseRef.current = (async () => {
+        if (demoMode) return { demo: true };
+        const url = new URL(window.location.href);
+        const token = url.searchParams.get("login");
+        let authErrorMsg = "";
+        if (token) {
+          try {
+            await authVerify(token);
+          } catch (e) {
+            authErrorMsg = e.message || "Prihlásenie zlyhalo.";
+          }
+          url.searchParams.delete("login");
+          window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+        }
         try {
-          await authVerify(token);
+          const d = await authMe();
+          return { user: d.user || null, authErrorMsg };
         } catch (e) {
-          if (!cancelled) setAuthError(e.message || "Prihlásenie zlyhalo.");
+          return { user: null, authErrorMsg: e.message || "Server neodpovedá." };
         }
-        url.searchParams.delete("login");
-        window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-      }
-      try {
-        const d = await authMe();
-        if (!cancelled) setMe(d.user || null);
-      } catch (e) {
-        if (!cancelled) {
-          setMe(null);
-          setAuthError(e.message || "Server neodpovedá.");
-        }
-      }
-    })();
+      })();
+    }
+
+    initPromiseRef.current.then((result) => {
+      if (cancelled) return;
+      if (result.demo) { setMe(DEMO_USER); return; }
+      setMe(result.user);
+      if (result.authErrorMsg) setAuthError(result.authErrorMsg);
+    });
+
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

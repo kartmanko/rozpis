@@ -41,12 +41,16 @@ export const ROLE_LABELS = {
   viewer: "Viewer",
 };
 
-// Ktoré profesie (stĺpce rozpisu) smie rola prepisovať celé.
+// Ktoré profesie (stĺpce rozpisu) smie rola prepisovať celé — päť sekcií štábu
+// (sekcia 2 briefu): kamera, réžia, Story produceri, loggeri, produkcia. Admin
+// réžie spravuje réžiu, Story aj loggerov naraz (tri sekcie), admin produkcie
+// svoju vlastnú sekciu "produkcia" (runneri, asistenti, vedúci produkcie — NIE
+// prázdna sekcia, to bola chyba v prvej verzii tejto mapy rolí).
 const ROLE_SECTIONS = {
-  admin: ["kamera", "rezia", "logger"],
+  admin: ["kamera", "rezia", "story", "logger", "produkcia"],
   kamera_admin: ["kamera"],
-  rezia_admin: ["rezia", "logger"],
-  produkcia_admin: [],
+  rezia_admin: ["rezia", "story", "logger"],
+  produkcia_admin: ["produkcia"],
   stab: [],
   viewer: [],
 };

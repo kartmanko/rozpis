@@ -8,10 +8,12 @@
 export const DEFAULT_SADZBY = {
   // Kamera: smena A/B/C/R = 200 €, samotný Duel = 200 €, smena aj Duel v ten istý deň = 230 €.
   kamera: { den: 200, duel: 200, denDuel: 230, nadcasPct: 10 },
-  // Réžia a loggeri Duel nerobia — ich denná sadzba je jedno číslo.
-  // Čísla sú len východiskové, treba ich v appke prepísať na skutočné.
+  // Réžia, Story produceri, loggeri a produkcia Duel nerobia — ich denná sadzba
+  // je jedno číslo. Čísla sú len východiskové, treba ich v appke prepísať na skutočné.
   rezia: { den: 200, duel: 200, denDuel: 200, nadcasPct: 10 },
+  story: { den: 200, duel: 200, denDuel: 200, nadcasPct: 10 },
   logger: { den: 200, duel: 200, denDuel: 200, nadcasPct: 10 },
+  produkcia: { den: 200, duel: 200, denDuel: 200, nadcasPct: 10 },
 };
 
 /** Najviac hodín nadčasu, ktoré má zmysel k jednému dňu nahlásiť. */
