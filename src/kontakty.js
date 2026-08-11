@@ -28,7 +28,11 @@ export function hladajKontakty(kontakty, otazka, limit = 8) {
 /** Kontakt patriaci k danému človeku zo štábu (podľa crewId), ak taký existuje. */
 export function kontaktPreCrew(kontakty, crewId) {
   if (!crewId) return null;
-  return (kontakty || []).find((k) => k.interny && String(k.crewId) === String(crewId)) || null;
+  return (
+    (kontakty || []).find(
+      (k) => k.interny && String(k.crewId) === String(crewId) && k.aktivny !== false
+    ) || null
+  );
 }
 
 /** tel: odkaz — prázdny reťazec, keď telefón nie je vyplnený (aby sa dalo <a href> podmienene skryť). */
