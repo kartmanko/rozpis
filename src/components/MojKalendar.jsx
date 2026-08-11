@@ -169,7 +169,7 @@ export default function MojKalendar({ me, crew, days, cellOf, dispo, denneRoly, 
                   }`}
                 >
                   <span
-                    className={`text-[10px] font-mono rounded px-0.5 -m-0.5 ${onDayClick ? "hover:bg-f-border underline decoration-dotted underline-offset-2" : ""} ${isToday ? "text-f-a font-bold" : "text-f-faint2"}`}
+                    className={`inline-block text-[10px] font-mono rounded px-1.5 py-1 -mx-1.5 -my-1 ${onDayClick ? "hover:bg-f-border underline decoration-dotted underline-offset-2" : ""} ${isToday ? "text-f-a font-bold" : "text-f-faint2"}`}
                     title={onDayClick ? "Detail dňa — kto ešte pracuje, dispo" : undefined}
                     onClick={(e) => {
                       if (!onDayClick) return;

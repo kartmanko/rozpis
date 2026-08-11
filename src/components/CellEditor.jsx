@@ -24,14 +24,14 @@ function NadcasRiadok({ cell, sadzba, onSet }) {
           <button
             onClick={() => zmen(-0.5)}
             disabled={!h}
-            className="w-8 h-8 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold disabled:opacity-30"
+            className="w-11 h-11 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold disabled:opacity-30"
           >
             −
           </button>
           <span className="w-16 text-center font-mono text-sm font-bold text-f-text">{h ? hod(h) : "0 h"}</span>
           <button
             onClick={() => zmen(0.5)}
-            className="w-8 h-8 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold"
+            className="w-11 h-11 rounded-lg bg-f-panel2 hover:bg-f-border text-f-text text-base font-bold"
           >
             +
           </button>

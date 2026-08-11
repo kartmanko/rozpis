@@ -46,7 +46,7 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, kontakty,
         <div className="flex items-baseline gap-2.5 mb-0.5">
           <div className="text-2xl font-extrabold tracking-tight text-f-text">{dayNum}.{monthIdx + 1}.</div>
           <div className="text-xs text-f-muted2">{dowFull.toLowerCase()}</div>
-          <div className="ml-auto text-[11px] font-bold uppercase tracking-wider text-f-faint cursor-pointer" onClick={onClose}>Zavrieť</div>
+          <button onClick={onClose} className="ml-auto text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
         </div>
         <div className="font-mono text-[10.5px] text-f-r tracking-wide mb-3.5">
           {reh ? "SKÚŠKY" : ci.n ? `CYKLUS ${ci.n} · DEŇ ${ci.pos}/5` : "MIMO CYKLU"}

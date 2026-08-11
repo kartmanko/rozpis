@@ -16,7 +16,7 @@ export default function SadzbyPanel({ sadzby, canEdit, onSetSadzba, onClose }) {
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-4 no-print">
       <div className="flex items-center gap-2 mb-1">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Sadzby — koľko je deň</div>
-        <div className="ml-auto text-[11px] font-bold uppercase tracking-wider text-f-faint cursor-pointer" onClick={onClose}>Zavrieť</div>
+        <button onClick={onClose} className="ml-auto text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
       <div className="text-[11px] text-f-faint mb-3.5">
         {canEdit
