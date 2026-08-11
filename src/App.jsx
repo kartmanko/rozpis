@@ -916,7 +916,7 @@ export default function App() {
       [aId, bId].forEach((cid) => {
         const k = iso + "|" + cid;
         const v = out[k];
-        if (v && !v.off && !v.shift && !v.duel && !v.note) delete out[k];
+        if (v && prazdnaBunka(v)) delete out[k];
       });
       return out;
     }, `Výmena ${skDate(iso)}: ${nameOf(aId)} ↔ ${nameOf(bId)}`);
