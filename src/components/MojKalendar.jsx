@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { SK_MONTHS } from "../constants";
-import { todayIso } from "../dateUtils";
+import { SK_MONTHS, SK_DAYS_FULL } from "../constants";
+import { todayIso, skDate } from "../dateUtils";
 
 /* "Domov štábu" (sekcia 4 finálneho briefu) — mesačný kalendár namiesto celej
    tabuľky rozpisu. Štáb (rola "stab") nemá dôvod listovať celým rozpisom celej
@@ -11,14 +11,21 @@ import { todayIso } from "../dateUtils";
    — v kalendári sú preto iba na čítanie. Prepínač "nemôžem" a nahlásenie nadčasu
    ostávajú funkčné, ale bez znovu-vymýšľania: klik na deň otvorí presne ten istý
    CellEditor (access="off"), čo používa aj tabuľka pri vlastnej bunke člena
-   štábu — ukladanie teda ide cez už existujúci setCell/commitCells v App.jsx. */
+   štábu — ukladanie teda ide cez už existujúci setCell/commitCells v App.jsx.
+
+   "Môj dnešok" (dorobené dodatočne, tá istá sekcia briefu) — kartička nad
+   kalendárom, nech človek nemusí v mriežke hľadať, kde je dnešok a čo sa
+   v ňom deje. A "preklik na celý rozpis": klik na ČÍSLO dňa (nie na zvyšok
+   bunky) otvorí ten istý DayDetail, čo používa tabuľka pre ostatné role
+   (onDayClick={setDayDetailIso} v App.jsx) — takže štáb vidí aj to, čo sám
+   upraviť nesmie: kto iný v ten deň pracuje, dispo, denné role. */
 
 const SHIFT_BADGE = { A: "bg-f-a", B: "bg-f-b", C: "bg-f-c", R: "bg-f-r" };
 const SK_DAYS_MON_FIRST = ["Po", "Ut", "St", "Št", "Pi", "So", "Ne"];
 
 const isoOfYMD = (y, monthIdx, d) => `${y}-${String(monthIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-export default function MojKalendar({ me, crew, days, cellOf, onCellClick }) {
+export default function MojKalendar({ me, crew, days, cellOf, dispo, denneRoly, onCellClick, onDayClick }) {
   const person = useMemo(() => (crew || []).find((c) => c.id === me?.crewId) || null, [crew, me]);
 
   // mesiace, v ktorých sezóna vôbec beží (rovnaká konvencia ako UzavierkyPanel)
@@ -65,10 +72,60 @@ export default function MojKalendar({ me, crew, days, cellOf, onCellClick }) {
   }
 
   const today = todayIso();
+  const jeVSezone = dniByIso.has(today);
+  const dnesX = jeVSezone ? cellOf(today, person.id) : null;
+  const dnesDennaRola = jeVSezone ? (denneRoly || []).find((r) => r.iso === today) : null;
+  const menoZCrew = (id) => crew.find((c) => c.id === id)?.name || null;
+  const dnesReziser = dnesDennaRola?.reziser ? menoZCrew(dnesDennaRola.reziser) : null;
+  const dnesStory = (dnesDennaRola?.storyProduceri || []).map(menoZCrew).filter(Boolean);
+  const dnesDispo = jeVSezone ? (dispo || {})[today] : null;
+  const dowDnes = SK_DAYS_FULL[new Date(today + "T00:00:00Z").getUTCDay()];
 
   return (
     <div data-testid="moj-kalendar" className="p-3.5">
       <div className="text-xs font-extrabold uppercase tracking-widest text-f-text mb-2.5">Môj kalendár — <span className="normal-case">{person.name}</span></div>
+
+      {jeVSezone && (
+        <button
+          data-testid="dnesok-karta"
+          onClick={() => onDayClick && onDayClick(today)}
+          className="w-full text-left rounded-lg border border-f-accent bg-f-today p-2.5 mb-3.5"
+        >
+          <div className="flex items-baseline gap-2 mb-1.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-f-a">Dnes</div>
+            <div className="text-xs font-semibold text-f-text">{skDate(today)} {dowDnes.toLowerCase()}</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {dnesX?.shift ? (
+              <span className={`inline-block font-mono text-[11px] font-bold text-f-ink rounded px-1.5 py-0.5 ${SHIFT_BADGE[dnesX.shift] || "bg-f-a"}`}>{dnesX.shift}</span>
+            ) : (
+              <span className="text-xs text-f-faint2">bez smeny</span>
+            )}
+            {dnesX?.duel && <span className="inline-block font-mono text-[10px] font-bold text-f-ink bg-f-duel rounded px-1.5 py-0.5">DUEL</span>}
+            {dnesX?.off && <span className="text-xs font-bold text-f-accent">nemôžem</span>}
+            {Number(dnesX?.nadcas) > 0 && (
+              <span className="text-[10px] font-mono text-f-muted2 border border-f-border rounded px-1.5 py-0.5">+{Number(dnesX.nadcas)}h nadčas</span>
+            )}
+          </div>
+          {(dnesReziser || dnesStory.length > 0) && (
+            <div className="text-[11px] text-f-text mt-1.5">
+              {dnesReziser && <span><span className="text-f-faint2">Režisér dňa: </span>{dnesReziser} </span>}
+              {dnesStory.length > 0 && <span><span className="text-f-faint2">Story dňa: </span>{dnesStory.join(", ")}</span>}
+            </div>
+          )}
+          {dnesDispo?.miesto && (
+            <div className="text-[11px] text-f-text mt-1"><span className="text-f-faint2">Miesto: </span>{dnesDispo.miesto}</div>
+          )}
+          {(dnesDispo?.harmonogram || [])[0] && (
+            <div className="text-[11px] text-f-text mt-0.5">
+              <span className="text-f-faint2">Zraz: </span>
+              <span className="font-mono">{dnesDispo.harmonogram[0].cas}</span> {dnesDispo.harmonogram[0].text}
+            </div>
+          )}
+          <div className="text-[10px] text-f-faint2 mt-1.5">Detail dňa →</div>
+        </button>
+      )}
+
       <div className="flex items-center gap-2 mb-3">
         <button
           onClick={() => setMesiacIdx((i) => Math.max(0, i - 1))}
@@ -111,7 +168,17 @@ export default function MojKalendar({ me, crew, days, cellOf, onCellClick }) {
                     isToday ? "border-f-accent bg-f-today" : "border-f-border bg-f-panel hover:bg-f-panel2"
                   }`}
                 >
-                  <span className={`text-[10px] font-mono ${isToday ? "text-f-a font-bold" : "text-f-faint2"}`}>{d.day}</span>
+                  <span
+                    className={`text-[10px] font-mono rounded px-0.5 -m-0.5 ${onDayClick ? "hover:bg-f-border underline decoration-dotted underline-offset-2" : ""} ${isToday ? "text-f-a font-bold" : "text-f-faint2"}`}
+                    title={onDayClick ? "Detail dňa — kto ešte pracuje, dispo" : undefined}
+                    onClick={(e) => {
+                      if (!onDayClick) return;
+                      e.stopPropagation();
+                      onDayClick(d.iso);
+                    }}
+                  >
+                    {d.day}
+                  </span>
                   <div className="flex flex-wrap gap-0.5">
                     {x.shift && (
                       <span className={`inline-block font-mono text-[10px] font-bold text-f-ink rounded px-1 ${SHIFT_BADGE[x.shift] || "bg-f-a"}`}>{x.shift}</span>

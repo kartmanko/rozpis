@@ -1553,7 +1553,16 @@ export default function App() {
         {me?.role === "stab" ? (
           // Štáb nevidí celú tabuľku posádky — iba svoj vlastný mesačný kalendár
           // (sekcia 4 briefu, "Domov štábu"). Ostatné role vidia tabuľku ako doteraz.
-          <MojKalendar me={me} crew={crew} days={days} cellOf={cellOf} onCellClick={handleCellClick} />
+          <MojKalendar
+            me={me}
+            crew={crew}
+            days={days}
+            cellOf={cellOf}
+            dispo={dispo}
+            denneRoly={denneRoly}
+            onCellClick={handleCellClick}
+            onDayClick={setDayDetailIso}
+          />
         ) : (
           <ScheduleTable
             days={filteredDays}
