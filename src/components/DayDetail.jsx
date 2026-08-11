@@ -10,13 +10,21 @@ const CHIP_BADGE = {
   R: "bg-f-r",
 };
 
-export default function DayDetail({ iso, crew, cellOf, reporty, dispo, kontakty, onClose }) {
+export default function DayDetail({ iso, crew, cellOf, reporty, dispo, kontakty, denneRoly, onClose }) {
   const ci = cycleInfo(iso);
   const reh = REHEARSALS.includes(iso);
   const d = new Date(toUTC(iso));
   const dayNum = d.getUTCDate();
   const monthIdx = d.getUTCMonth();
   const dowFull = SK_DAYS_FULL[d.getUTCDay()];
+
+  /* Denné role (sekcia 5 briefu) — kto tento deň šéfuje: hlavný režisér (najviac
+     jeden) a Story produceri (viacero). Nie je to trvalá rola, iba priradenie na
+     tento deň (viď DenneRolyPanel.jsx). Meno hľadáme v crew podľa crewId. */
+  const dennaRola = (denneRoly || []).find((r) => r.iso === iso);
+  const menoZCrew = (id) => crew.find((c) => c.id === id)?.name || null;
+  const reziserDna = dennaRola?.reziser ? menoZCrew(dennaRola.reziser) : null;
+  const storyDna = (dennaRola?.storyProduceri || []).map(menoZCrew).filter(Boolean);
 
   /* Denné reporty priradené k tomuto dňu (Fáza 4). Môže ich byť aj viac —
      každá správa z reportovej skupiny je samostatný report. */
@@ -43,6 +51,17 @@ export default function DayDetail({ iso, crew, cellOf, reporty, dispo, kontakty,
         <div className="font-mono text-[10.5px] text-f-r tracking-wide mb-3.5">
           {reh ? "SKÚŠKY" : ci.n ? `CYKLUS ${ci.n} · DEŇ ${ci.pos}/5` : "MIMO CYKLU"}
         </div>
+
+        {(reziserDna || storyDna.length > 0) && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[12.5px]">
+            {reziserDna && (
+              <div className="text-f-text"><span className="text-f-faint2">Režisér dňa: </span><span className="font-semibold">{reziserDna}</span></div>
+            )}
+            {storyDna.length > 0 && (
+              <div className="text-f-text"><span className="text-f-faint2">Story dňa: </span><span className="font-semibold">{storyDna.join(", ")}</span></div>
+            )}
+          </div>
+        )}
 
         {ROLES.map((r) => {
           const people = crew.filter((c) => (c.role || "kamera") === r.key);

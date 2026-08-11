@@ -1522,7 +1522,7 @@ export default function App() {
         />
       )}
       {panel === "dispoBuilder" && caps.pending && (
-        <DispoBuilderPanel dispo={dispo} crew={crew} cellOf={cellOf} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
+        <DispoBuilderPanel dispo={dispo} crew={crew} cellOf={cellOf} denneRoly={denneRoly} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
       )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />
@@ -1582,6 +1582,7 @@ export default function App() {
           reporty={caps.reporty ? reporty : {}}
           dispo={dispo}
           kontakty={kontakty}
+          denneRoly={denneRoly}
           onClose={() => setDayDetailIso(null)}
         />
       )}

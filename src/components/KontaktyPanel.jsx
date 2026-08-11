@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { telOdkaz, mailOdkaz } from "../kontakty";
+import { USER_ROLES } from "../permissions";
 
 /* Databáza kontaktov štábu a externých ľudí (sekcia 1 finálneho briefu).
 
@@ -8,10 +9,12 @@ import { telOdkaz, mailOdkaz } from "../kontakty";
    ShowService a podobne) nemá stĺpec v rozpise, je to čisto meno + kontakt na
    napovedanie a mail.
 
-   Tento zoznam zatiaľ NIE JE zoznam ľudí, čo sa smú prihlásiť — to je stále
-   samostatná "Prístupy" (UsersPanel, users_v1 na serveri). Prepojenie s prihlásením
-   príde až so sekciou 4 briefu (finálna mapa rolí) — kým tá nie je hotová, dalo by sa
-   to previazať iba na súčasný, dočasný model rolí a muselo by sa to potom prerobiť. */
+   Tento zoznam JE ZÁROVEŇ zdrojom allowlistu na prihlásenie (sekcia 10 briefu):
+   interný kontakt s vyplneným mailom A priradenou "rolou pre prihlásenie" server
+   pri každom uložení bezpečne dopíše do "Prístupy" (users_v1, viď
+   synchronizujPouzivatelovZKontaktov vo worker/src/auth.js). "Prístupy" ostáva
+   ako panel na ručné výnimky (napr. niekto bez kontaktu, alebo mimo štábu) —
+   ručne pridaných ľudí táto synchronizácia nikdy neprepíše ani nezmaže. */
 export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) {
   const [novyInterny, setNovyInterny] = useState(false);
   const [novyMeno, setNovyMeno] = useState("");
@@ -40,6 +43,7 @@ export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) 
         interny: novyInterny,
         crewId: novyInterny && novyCrewId ? novyCrewId : null,
         aktivny: true,
+        rola: "",
       },
     ]);
     setNovyMeno("");
@@ -122,6 +126,17 @@ export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) 
                 >
                   <option value="">Patrí k… (nikto)</option>
                   {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+              {k.interny && (
+                <select
+                  value={k.rola || ""}
+                  onChange={(e) => patch(k.id, { rola: e.target.value })}
+                  title="Rola pre prihlásenie — s mailom nižšie určuje, či a s akými právami sa človek dostane do appky."
+                  className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text"
+                >
+                  <option value="">Prihlásenie: vypnuté</option>
+                  {USER_ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                 </select>
               )}
             </div>

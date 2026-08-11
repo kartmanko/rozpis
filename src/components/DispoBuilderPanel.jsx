@@ -33,7 +33,7 @@ const prazdnyBlok = (datum) => ({
   dalsiPrijemcovia: "",
 });
 
-export default function DispoBuilderPanel({ dispo, crew, cellOf, canEdit, onUloz, onClose }) {
+export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canEdit, onUloz, onClose }) {
   const [datum, setDatum] = useState("");
   const [blok, setBlok] = useState(prazdnyBlok(""));
   const [nahlad, setNahlad] = useState(null); // null | "nacitava" | {subject, html, text, prijemcovia} | { chyba }
@@ -153,6 +153,21 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, canEdit, onUloz
         />
         {datum && <span className="text-[11px] text-f-faint2">{denText(datum)}</span>}
       </div>
+
+      {datum && (() => {
+        // Denné role (sekcia 5 briefu) — kto ten deň šéfuje, ide aj do hlavičky mailu (viď worker/src/index.js).
+        const dennaRola = (denneRoly || []).find((r) => r.iso === datum);
+        const menoZCrew = (id) => (crew || []).find((c) => c.id === id)?.name || null;
+        const reziserDna = dennaRola?.reziser ? menoZCrew(dennaRola.reziser) : null;
+        const storyDna = (dennaRola?.storyProduceri || []).map(menoZCrew).filter(Boolean);
+        if (!reziserDna && !storyDna.length) return null;
+        return (
+          <div className="text-[11px] text-f-faint2 mb-2.5">
+            {reziserDna && <>Režisér dňa: <span className="text-f-text font-semibold">{reziserDna}</span>{storyDna.length ? " · " : ""}</>}
+            {storyDna.length > 0 && <>Story dňa: <span className="text-f-text font-semibold">{storyDna.join(", ")}</span></>}
+          </div>
+        );
+      })()}
 
       {!datum && <div className="text-sm text-f-faint leading-relaxed">Najprv vyber deň.</div>}
 

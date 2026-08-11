@@ -46,6 +46,9 @@ import {
   handleGetUsers,
   handlePostUsers,
   readUsers,
+  writeUsers,
+  synchronizujPouzivatelovZKontaktov,
+  ROLE_KEYS,
   rovnakeTajomstvo,
   logJeIbaDoplneny,
   uzavierkyValidna,
@@ -342,6 +345,9 @@ function ocistiKontakty(arr) {
       interny: !!k.interny,
       crewId: k.interny && k.crewId ? String(k.crewId).slice(0, 60) : null,
       aktivny: k.aktivny !== false,
+      // Rola pre allowlist (sekcia 10 briefu) — má zmysel iba pri interných
+      // kontaktoch s mailom; pozri synchronizujPouzivatelovZKontaktov v auth.js.
+      rola: k.interny && ROLE_KEYS.includes(k.rola) ? k.rola : "",
     });
     if (out.length >= MAX_KONTAKTOV) break;
   }
@@ -485,6 +491,19 @@ async function handlePostData(request, env) {
   }
 
   await writeState(env, next);
+
+  /* Kontakty ako zdroj allowlistu (sekcia 10 briefu) — keď sa zmenili kontakty,
+     bezpečne dopočítať users_v1 (viď synchronizujPouzivatelovZKontaktov v
+     auth.js). Robí sa to AŽ PO úspešnom uložení rozpisu a iba keď sa kontakty
+     naozaj zmenili, nech sa zbytočne nezapisuje do KV pri každom uložení. */
+  if (JSON.stringify(next.kontakty) !== JSON.stringify(current.kontakty)) {
+    const users = await readUsers(env);
+    const synced = synchronizujPouzivatelovZKontaktov(next.kontakty, users);
+    if (JSON.stringify(synced) !== JSON.stringify(users)) {
+      await writeUsers(env, synced);
+    }
+  }
+
   return json({ version: next.version }, 200, env);
 }
 
@@ -1424,12 +1443,18 @@ function dispoPrijemcovia(blok, kontakty) {
   return [...mnozina.values()];
 }
 
-function renderDispoMail(blok, crew) {
+function renderDispoMail(blok, crew, denneRoly) {
   const d = new Date(blok.datum + "T00:00:00Z");
   const denText = Number.isNaN(d.getTime())
     ? blok.datum
     : `${SK_DOW[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`;
   const subject = `Dispozícia — ${denText}`;
+
+  // Denné role (sekcia 5 briefu) — kto ten deň šéfuje, do hlavičky dispa.
+  const dennaRola = (denneRoly || []).find((r) => r.iso === blok.datum);
+  const reziserDna = dennaRola?.reziser ? crewMeno(crew, dennaRola.reziser) : "";
+  const storyDna = (dennaRola?.storyProduceri || []).map((id) => crewMeno(crew, id)).filter(Boolean);
+  const denneRolyText = [reziserDna && `Režisér: ${reziserDna}`, storyDna.length && `Story: ${storyDna.join(", ")}`].filter(Boolean).join(" · ");
 
   const riadkyHarmonogram = blok.harmonogram.map((h) => `${h.cas ? h.cas + " — " : ""}${h.text}`);
   const skupinyText = blok.skupiny
@@ -1444,6 +1469,7 @@ function renderDispoMail(blok, crew) {
 
   const textCasti = [
     `Dispozícia — ${denText}`,
+    denneRolyText,
     blok.miesto ? `Miesto: ${blok.miesto}` : "",
     blok.pocasie ? `Počasie: ${blok.pocasie}` : "",
     riadkyHarmonogram.length ? "Harmonogram:\n" + riadkyHarmonogram.join("\n") : "",
@@ -1458,6 +1484,7 @@ function renderDispoMail(blok, crew) {
     <div style="background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e7e5e4;">
       <h1 style="margin:0 0 4px;font-size:20px;color:#1c1917;">Dispozícia</h1>
       <p style="margin:0 0 18px;font-size:14px;color:#78716c;text-transform:capitalize;">${escapeHtml(denText)}</p>
+      ${denneRolyText ? `<p style="margin:0 0 14px;font-size:14px;color:#44403c;">${escapeHtml(denneRolyText)}</p>` : ""}
       ${blok.miesto || blok.pocasie ? `<p style="margin:0 0 14px;font-size:14px;color:#44403c;">${[blok.miesto && `<b>Miesto:</b> ${escapeHtml(blok.miesto)}`, blok.pocasie && `<b>Počasie:</b> ${escapeHtml(blok.pocasie)}`].filter(Boolean).join(" &nbsp;·&nbsp; ")}</p>` : ""}
       ${riadkyHarmonogram.length ? `<div style="margin:0 0 16px;"><div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a8a29e;margin-bottom:6px;">Harmonogram</div>${riadkyHarmonogram.map((r) => `<div style="font-size:14px;color:#292524;padding:2px 0;">${escapeHtml(r)}</div>`).join("")}</div>` : ""}
       ${skupinyText.length ? `<div style="margin:0 0 16px;"><div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#a8a29e;margin-bottom:6px;">Kto pracuje</div>${skupinyText.map((r) => `<div style="font-size:14px;color:#292524;padding:2px 0;">${escapeHtml(r)}</div>`).join("")}</div>` : ""}
@@ -1485,7 +1512,7 @@ async function handlePostDispoOdoslatNahlad(request, env) {
 
   const state = await readState(env);
   const prijemcovia = dispoPrijemcovia(blok, state.kontakty);
-  const { subject, html, text } = renderDispoMail(blok, state.crew);
+  const { subject, html, text } = renderDispoMail(blok, state.crew, state.denneRoly);
   return json({ subject, html, text, prijemcovia }, 200, env);
 }
 
@@ -1508,7 +1535,7 @@ async function handlePostDispoOdoslat(request, env) {
   if (!prijemcovia.length) {
     return json({ error: "Nemá komu prísť mail — nikto zo skladby dňa nemá mail v databáze kontaktov." }, 400, env);
   }
-  const { subject, html, text } = renderDispoMail(blok, state.crew);
+  const { subject, html, text } = renderDispoMail(blok, state.crew, state.denneRoly);
 
   try {
     await posliMail(env, { to: prijemcovia, subject, html, text });

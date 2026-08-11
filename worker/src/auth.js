@@ -182,12 +182,88 @@ function sanitizeUser(u) {
     role,
     crewId: u.crewId ? String(u.crewId) : null,
     active: u.active !== false,
+    // Musí prežiť aj ručné uloženie v "Prístupy" (napr. zapnutie/vypnutie iného
+    // človeka v tom istom zozname) — inak by prvé ďalšie uloženie tohto panela
+    // vymazalo príznak vytvorenia zo synchronizácie s kontaktami (viď
+    // synchronizujPouzivatelovZKontaktov nižšie) a synchronizácia by od tej
+    // chvíle ticho prestala deaktivovať ľudí, ktorým medzitým zmizol kontakt —
+    // presne ten druh nenápadnej bezpečnostnej medzery, ktorej sa treba vyhnúť.
+    zdrojKontakt: !!u.zdrojKontakt,
   };
 }
 
 export function findUser(users, email) {
   const e = normEmail(email);
   return users.find((u) => normEmail(u.email) === e) || null;
+}
+
+/* ---------- databáza kontaktov ako zdroj allowlistu (sekcia 10 + 4 briefu) ----------
+
+   Brief, sekcia 10: "Tento zoznam [kontaktov] je zdrojom allowlistu — kto v ňom má
+   mail a rolu, dostane pozývací magic link." Predtým bola prihlasovacia allowlist
+   (users_v1) úplne samostatná od databázy kontaktov, spravovaná ručne v paneli
+   "Prístupy" — bolo to zámerne dočasné, kým nebude hotová finálna mapa rolí
+   (sekcia 4), aby sa to nemuselo prerábať dvakrát. Tá je už hotová, takže teraz
+   sa users_v1 pri každom uložení kontaktov DOPĹŇA (nie prepisuje) podľa nich.
+
+   Pravidlá (opatrne, nech sa nikto omylom nezamkne von):
+   - iba interní kontakty s vyplneným mailom A priradenou rolou sa berú do úvahy,
+   - kontakt so "aktivny: false" zruší prístup, ale iba používateľovi, ktorého
+     kedysi vytvoril/spravoval TENTO mechanizmus (pozná sa podľa "zdrojKontakt: true")
+     — ručne pridaných ľudí v "Prístupy" sa táto synchronizácia nikdy nedotkne,
+   - nikdy nedeaktivuje posledného aktívneho hlavného admina (rovnaká poistka
+     ako v handlePostUsers nižšie) — keby k tomu malo dôjsť, synchronizácia sa
+     pre toho človeka jednoducho preskočí a users_v1 ostane, aký bol. */
+export function synchronizujPouzivatelovZKontaktov(kontakty, existingUsers) {
+  const users = existingUsers.map((u) => ({ ...u }));
+  const byEmail = new Map(users.map((u) => [normEmail(u.email), u]));
+
+  const oprávnené = new Map(); // normEmail -> kontakt
+  for (const k of kontakty || []) {
+    if (!k?.interny || !k.mail || !k.rola) continue;
+    if (!ROLE_KEYS.includes(k.rola)) continue;
+    if (k.aktivny === false) continue; // vypnutý kontakt = zrušený prístup, viď komentár vyššie
+    oprávnené.set(normEmail(k.mail), k);
+  }
+
+  // 1) doplniť/aktualizovať podľa oprávnených kontaktov
+  for (const [email, k] of oprávnené) {
+    const existujuci = byEmail.get(email);
+    if (existujuci) {
+      existujuci.role = k.rola;
+      existujuci.crewId = k.crewId ? String(k.crewId) : existujuci.crewId;
+      existujuci.name = k.meno || existujuci.name;
+      existujuci.active = true;
+      existujuci.zdrojKontakt = true;
+    } else {
+      const novy = {
+        id: "u_" + randomToken().slice(0, 10),
+        email,
+        name: k.meno || "",
+        role: k.rola,
+        crewId: k.crewId ? String(k.crewId) : null,
+        active: true,
+        zdrojKontakt: true,
+      };
+      users.push(novy);
+      byEmail.set(email, novy);
+    }
+  }
+
+  // 2) deaktivovať tých, čo túto synchronizáciu kedysi vytvorila/spravovala,
+  //    ale už nie sú medzi oprávnenými (kontakt zmizol, deaktivoval sa, alebo
+  //    stratil rolu) — okrem poslednej ostávajúcej aktívnej admin poistky.
+  const pocetAktivnychAdminov = users.filter((u) => u.role === "admin" && u.active !== false).length;
+  let aktivnychAdminovOstava = pocetAktivnychAdminov;
+  for (const u of users) {
+    if (!u.zdrojKontakt || u.active === false) continue;
+    if (oprávnené.has(normEmail(u.email))) continue;
+    if (u.role === "admin" && aktivnychAdminovOstava <= 1) continue; // poistka
+    if (u.role === "admin") aktivnychAdminovOstava--;
+    u.active = false;
+  }
+
+  return users;
 }
 
 /* ---------- história prihlásení ---------- */
@@ -446,7 +522,18 @@ export async function handleAuthLogout(request, env, corsHeaders) {
 }
 
 export function publicUser(u) {
-  return { id: u.id, email: u.email, name: u.name, role: u.role, crewId: u.crewId || null, active: u.active !== false };
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    crewId: u.crewId || null,
+    active: u.active !== false,
+    // Nech admin v paneli "Prístupy" vidí, že tohto človeka sem dopísala
+    // synchronizácia s kontaktami (sekcia 10 briefu), nie on sám ručne —
+    // inak by mu nový riadok mohol pripadať ako duch/chyba appky.
+    zdrojKontakt: !!u.zdrojKontakt,
+  };
 }
 
 /** GET /auth/users -> zoznam používateľov (iba admin) */

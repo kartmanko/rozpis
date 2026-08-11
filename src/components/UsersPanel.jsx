@@ -108,6 +108,14 @@ export default function UsersPanel({ crew, onClose }) {
           <div key={u.id} className="p-2.5 rounded-lg bg-f-panel2 border border-f-border">
             <div className="flex items-center gap-2 mb-2">
               <span className={`text-sm font-mono truncate ${u.active === false ? "text-f-faint2 line-through" : "text-f-text"}`}>{u.email}</span>
+              {u.zdrojKontakt && (
+                <span
+                  title="Tohto človeka sem doplnila synchronizácia s databázou kontaktov — zmeníš to v paneli Kontakty."
+                  className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-f-panel3 text-f-faint2 shrink-0"
+                >
+                  z kontaktov
+                </span>
+              )}
               <div className="grow" />
               <button
                 onClick={() => patch(u.id, { active: u.active === false })}
