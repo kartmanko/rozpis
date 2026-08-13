@@ -44,7 +44,17 @@ export default function CrewPanel({ crew, setCrew, moveCrew, onClose }) {
         </select>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="nová osoba" className="px-2 py-1 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text placeholder:text-f-faint2" />
         <button
-          onClick={() => { if (!name.trim()) return; setCrew((c) => [...c, { id: "c" + Date.now(), name: name.trim(), aliases: [], role }]); setName(""); }}
+          onClick={() => {
+            if (!name.trim()) return;
+            // Date.now() samotný nestačí — na rozdiel od kontaktov/uzávierok
+            // (kde je zvykom pridať aj náhodnú príponu) by dve rýchlo za sebou
+            // pridané osoby v tej istej milisekunde (napr. dvojité odoslanie
+            // dotyku na mobile) dostali rovnaké id a odvtedy by zdieľali
+            // bunky v rozpise (kľúč "iso|crewId") aj všetky vyhľadávania podľa id.
+            const id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            setCrew((c) => [...c, { id, name: name.trim(), aliases: [], role }]);
+            setName("");
+          }}
           className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-text transition-colors"
         >Pridať</button>
       </div>
