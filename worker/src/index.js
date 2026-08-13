@@ -1040,30 +1040,38 @@ async function handlePostHook(request, env) {
        polia, ktorých sa dávka nedotkla (tie by aj plná kópia ochránila), ale
        aj pre cells/chaty/reporty/pendingHook, ktorých sa dávka priamo dotýka.
        zabudniKes je nutný — bez neho by readState vrátil z medzipamäte TEJTO
-       ISTEJ požiadavky presne to isté (zastarané) čítanie ako na začiatku. */
-    zabudniKes(env, STATE_KEY);
-    const cerstvyStav = await readState(env);
+       ISTEJ požiadavky presne to isté (zastarané) čítanie ako na začiatku.
 
-    const cells = { ...cerstvyStav.cells };
-    for (const [k, v] of Object.entries(cellPatches)) { if (v === null) delete cells[k]; else cells[k] = v; }
+       Samotné "čítaj znova a zapíš" (od zabudniKes po writeState) sa navyše
+       zaradí do radu (zaradDoRadu, viď handlePostData) — bez toho by aj toto
+       druhé, "čerstvé" čítanie mohlo naraziť na súbežný zápis niekoho iného
+       (appka, iný bridge, dispo mail) presne v tej istej medzere. */
+    const next = await zaradDoRadu(async () => {
+      zabudniKes(env, STATE_KEY);
+      const cerstvyStav = await readState(env);
 
-    const chaty = { ...cerstvyStav.chaty, ...chatyPatch };
+      const cells = { ...cerstvyStav.cells };
+      for (const [k, v] of Object.entries(cellPatches)) { if (v === null) delete cells[k]; else cells[k] = v; }
 
-    const reporty = { ...cerstvyStav.reporty, ...reportyPatch };
-    // strop na počet reportov sa počíta až TERAZ, na zlúčenom (čerstvom) stave
-    const kluceReportov = Object.keys(reporty);
-    if (kluceReportov.length > MAX_REPORTOV) {
-      kluceReportov
-        .sort((a, b) => String(reporty[a].prislo).localeCompare(String(reporty[b].prislo)))
-        .slice(0, kluceReportov.length - MAX_REPORTOV)
-        .forEach((k) => delete reporty[k]);
-    }
+      const chaty = { ...cerstvyStav.chaty, ...chatyPatch };
 
-    const pendingHook = [...pendingHookNove, ...(cerstvyStav.pendingHook || [])].slice(0, 200);
+      const reporty = { ...cerstvyStav.reporty, ...reportyPatch };
+      // strop na počet reportov sa počíta až TERAZ, na zlúčenom (čerstvom) stave
+      const kluceReportov = Object.keys(reporty);
+      if (kluceReportov.length > MAX_REPORTOV) {
+        kluceReportov
+          .sort((a, b) => String(reporty[a].prislo).localeCompare(String(reporty[b].prislo)))
+          .slice(0, kluceReportov.length - MAX_REPORTOV)
+          .forEach((k) => delete reporty[k]);
+      }
 
-    const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...cerstvyStav.log].slice(0, 400);
-    const next = { ...cerstvyStav, cells, chaty, reporty, pendingHook, log, version: cerstvyStav.version + 1 };
-    await writeState(env, next);
+      const pendingHook = [...pendingHookNove, ...(cerstvyStav.pendingHook || [])].slice(0, 200);
+
+      const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...cerstvyStav.log].slice(0, 400);
+      const zapisany = { ...cerstvyStav, cells, chaty, reporty, pendingHook, log, version: cerstvyStav.version + 1 };
+      await writeState(env, zapisany);
+      return zapisany;
+    });
     // dávka s jednou správou dostane rovnakú odpoveď ako predtým (bridge na to spolieha v logoch)
     if (!Array.isArray(body.messages)) return json({ ...vysledky[0], version: next.version }, chyba502 ? 502 : 200, env);
     return json({ ok: true, vysledky, version: next.version }, chyba502 ? 502 : 200, env);
@@ -1110,35 +1118,41 @@ async function handleBridgePing(request, env) {
 
   /* Doplň novoobjavené skupiny do zoznamu (vypnuté), názvy existujúcich zaktualizuj.
      Stav si načítame RAZ a ďalej s ním pracujeme — predtým sa tu čítal dvakrát
-     za sebou, čo bolo pri ohlásení každú minútu zbytočné míňanie KV. */
+     za sebou, čo bolo pri ohlásení každú minútu zbytočné míňanie KV.
+     Čítanie aj prípadný zápis sa zaradí do radu (zaradDoRadu, viď handlePostData)
+     — bez toho by dve ping-ovania (alebo appka a ping) mohli súbežne prečítať tú
+     istú verziu a druhý zápis by ticho prepísal prvý. */
   const skupiny = Array.isArray(body.skupiny) ? body.skupiny.slice(0, 200) : [];
-  let state = await readState(env);
-  if (skupiny.length) {
-    const chaty = { ...(state.chaty || {}) };
-    let zmena = false;
-    for (const s of skupiny) {
-      const id = String(s?.id || "").slice(0, 120);
-      if (!id) continue;
-      const nazov = String(s?.nazov || "").slice(0, 120) || "(bez názvu)";
-      if (!chaty[id]) {
-        /* Zoznam skupín má strop. Bez neho by pokazená (alebo podvrhnutá)
-           čítačka vedela každou minútou pridať ďalšie stovky skupín a stav by
-           rástol, kým sa doňho dá zapísať. Nové skupiny sa vtedy jednoducho
-           ignorujú — zapnuté sledovanie beží ďalej a admin vie zoznam
-           prečistiť tlačidlom „Zabudni skupiny". */
-        if (Object.keys(chaty).length >= MAX_CHATOV) continue;
-        chaty[id] = { id, nazov, povoleny: false, prvyKrat: new Date().toISOString(), poslednaSprava: "" };
-        zmena = true;
-      } else if (chaty[id].nazov !== nazov) {
-        chaty[id] = { ...chaty[id], nazov };
-        zmena = true;
+  const state = await zaradDoRadu(async () => {
+    let s = await readState(env);
+    if (skupiny.length) {
+      const chaty = { ...(s.chaty || {}) };
+      let zmena = false;
+      for (const sk of skupiny) {
+        const id = String(sk?.id || "").slice(0, 120);
+        if (!id) continue;
+        const nazov = String(sk?.nazov || "").slice(0, 120) || "(bez názvu)";
+        if (!chaty[id]) {
+          /* Zoznam skupín má strop. Bez neho by pokazená (alebo podvrhnutá)
+             čítačka vedela každou minútou pridať ďalšie stovky skupín a stav by
+             rástol, kým sa doňho dá zapísať. Nové skupiny sa vtedy jednoducho
+             ignorujú — zapnuté sledovanie beží ďalej a admin vie zoznam
+             prečistiť tlačidlom „Zabudni skupiny". */
+          if (Object.keys(chaty).length >= MAX_CHATOV) continue;
+          chaty[id] = { id, nazov, povoleny: false, prvyKrat: new Date().toISOString(), poslednaSprava: "" };
+          zmena = true;
+        } else if (chaty[id].nazov !== nazov) {
+          chaty[id] = { ...chaty[id], nazov };
+          zmena = true;
+        }
+      }
+      if (zmena) {
+        s = { ...s, chaty, version: s.version + 1 };
+        await writeState(env, s);
       }
     }
-    if (zmena) {
-      state = { ...state, chaty, version: state.version + 1 };
-      await writeState(env, state);
-    }
-  }
+    return s;
+  });
 
   // bridge si vypýta, ktoré chaty má vôbec posielať — nech zvyšok ani neopúšťa jeho stroj
   const povolene = Object.values(state.chaty || {}).filter((c) => c.povoleny).map((c) => c.id);
@@ -1194,18 +1208,23 @@ async function handleChatyZabudni(request, env) {
     return json({ error: "Zoznam skupín smie prečistiť iba vedúci alebo hlavný admin." }, 403, env);
   }
 
-  const state = await readState(env);
-  const vsetky = Object.values(state.chaty || {});
-  const ostavaju = {};
-  for (const c of vsetky) if (c?.povoleny) ostavaju[c.id] = c;
-  const zmazane = vsetky.length - Object.keys(ostavaju).length;
-  if (!zmazane) return json({ ok: true, zmazane: 0 }, 200, env);
+  // čítanie aj zápis do radu (zaradDoRadu, viď handlePostData) — bez toho by
+  // súbežný zápis niekoho iného medzi čítaním a zápisom tu mohol ticho zaniknúť.
+  const zmazane = await zaradDoRadu(async () => {
+    const state = await readState(env);
+    const vsetky = Object.values(state.chaty || {});
+    const ostavaju = {};
+    for (const c of vsetky) if (c?.povoleny) ostavaju[c.id] = c;
+    const pocet = vsetky.length - Object.keys(ostavaju).length;
+    if (!pocet) return 0;
 
-  const log = [
-    { t: new Date().toISOString(), text: `Zoznam WhatsApp skupín prečistený (${zmazane}) — ${user.email}` },
-    ...(state.log || []),
-  ].slice(0, 400);
-  await writeState(env, { ...state, chaty: ostavaju, log, version: state.version + 1 });
+    const log = [
+      { t: new Date().toISOString(), text: `Zoznam WhatsApp skupín prečistený (${pocet}) — ${user.email}` },
+      ...(state.log || []),
+    ].slice(0, 400);
+    await writeState(env, { ...state, chaty: ostavaju, log, version: state.version + 1 });
+    return pocet;
+  });
   return json({ ok: true, zmazane }, 200, env);
 }
 
@@ -1441,9 +1460,9 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
   // uložiť appku. zabudniKes je nutný: bez neho by readState vrátil z
   // medzipamäte TEJTO ISTEJ požiadavky presne to isté (zastarané) čítanie ako
   // state0, akoby sa v KV odvtedy nič nezmenilo, a táto poistka by nič
-  // nechránila.
-  zabudniKes(env, STATE_KEY);
-  const state = await readState(env);
+  // nechránila. Samotné "čítaj znova a zapíš" sa navyše zaradí do radu
+  // (zaradDoRadu, viď handlePostData) — aj toto druhé čítanie by inak mohlo
+  // naraziť na súbežný zápis niekoho iného presne v tej istej medzere.
   const id = "dsp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
   const navrh = {
     id,
@@ -1462,13 +1481,18 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
     text: cistyText.slice(0, 20000),
   };
 
-  const pendingDispo = [navrh, ...(state.pendingDispo || [])].slice(0, MAX_PENDING_DISPO);
-  const log = [
-    { t: new Date().toISOString(), text: `Dispo mail na ${navrh.datum}${precitane ? "" : " (nepodarilo sa prečítať — iba text)"} — čaká na potvrdenie` },
-    ...state.log,
-  ].slice(0, 400);
-  const next = { ...state, pendingDispo, log, version: state.version + 1 };
-  await writeState(env, next);
+  const next = await zaradDoRadu(async () => {
+    zabudniKes(env, STATE_KEY);
+    const state = await readState(env);
+    const pendingDispo = [navrh, ...(state.pendingDispo || [])].slice(0, MAX_PENDING_DISPO);
+    const log = [
+      { t: new Date().toISOString(), text: `Dispo mail na ${navrh.datum}${precitane ? "" : " (nepodarilo sa prečítať — iba text)"} — čaká na potvrdenie` },
+      ...state.log,
+    ].slice(0, 400);
+    const zapisany = { ...state, pendingDispo, log, version: state.version + 1 };
+    await writeState(env, zapisany);
+    return zapisany;
+  });
 
   return { navrh: true, id, datum: navrh.datum, precitane, zmien: zmeny.length, polozek: harmonogram.length, version: next.version };
 }
