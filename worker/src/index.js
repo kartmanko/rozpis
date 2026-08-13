@@ -720,7 +720,7 @@ async function spracujHookSpravu(env, state, msg) {
      telefónnom čísle: radšej nech appka navrhne, než aby konala sama. */
   // "dostupnost" = kto kedy nemôže (Fáza 3), "report" = denný report réžie (Fáza 4)
   let druhChatu = "dostupnost";
-  const chaty = { ...(state.chaty || {}) };
+  const chaty = state.chaty || {};
   const zaznam = chaty[chatId];
   const menoChatu = String(chatName || "").slice(0, 120);
   let mutacie = {};
@@ -730,7 +730,7 @@ async function spracujHookSpravu(env, state, msg) {
     return { vysledok: { ignored: true, reason: "zoznam skupín je plný" } };
   }
   if (chatId && !zaznam) {
-    chaty[chatId] = {
+    const novyZaznam = {
       id: chatId,
       nazov: menoChatu || "(bez názvu)",
       povoleny: false,
@@ -739,7 +739,7 @@ async function spracujHookSpravu(env, state, msg) {
     };
     return {
       vysledok: { chatUnknown: true, chatId, reason: "chat ešte nie je zapnutý" },
-      mutacie: { chaty, logRiadok: `WhatsApp bridge: nový chat „${menoChatu || chatId}" — čaká na zapnutie adminom` },
+      mutacie: { chatyPatch: { [chatId]: novyZaznam }, logRiadok: `WhatsApp bridge: nový chat „${menoChatu || chatId}" — čaká na zapnutie adminom` },
     };
   }
   if (chatId && !zaznam.povoleny) {
@@ -747,8 +747,7 @@ async function spracujHookSpravu(env, state, msg) {
   }
   if (chatId && (zaznam.nazov !== menoChatu && menoChatu)) {
     // názov skupiny sa dá premenovať — drž ho aktuálny, ale kvôli tomu neruš nič iné
-    chaty[chatId] = { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() };
-    mutacie = { chaty };
+    mutacie = { chatyPatch: { [chatId]: { ...zaznam, nazov: menoChatu, poslednaSprava: new Date().toISOString() } } };
   }
   if (zaznam && zaznam.druh === "report") druhChatu = "report";
 
@@ -774,14 +773,14 @@ async function spracujHookSpravu(env, state, msg) {
       }
     }
 
-    const reporty = { ...(state.reporty || {}) };
+    const reportyDoteraz = state.reporty || {};
     // druhý bridge doručí tú istú správu — poistka aj bez pečiatky v KV
-    if (msgId && Object.values(reporty).some((r) => r.msgId === String(msgId).slice(0, 120))) {
-      return { vysledok: { duplicate: true, reason: "report už je uložený" } };
+    if (msgId && Object.values(reportyDoteraz).some((r) => r.msgId === String(msgId).slice(0, 120))) {
+      return { vysledok: { duplicate: true, reason: "report už je uložený" }, mutacie };
     }
 
     const id = "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-    reporty[id] = {
+    const zaznamReportu = {
       id,
       datum,
       zdrojDatumu: zdroj,          // "text" = z textu reportu, "sprava" = podľa dňa doručenia
@@ -793,21 +792,15 @@ async function spracujHookSpravu(env, state, msg) {
       msgId: msgId ? String(msgId).slice(0, 120) : "",
       text: String(text).slice(0, 8000),
     };
-
-    // strop: keby niečo zlyhalo, nech to nezaplní celé KV — zahoď najstaršie
-    const kluce = Object.keys(reporty);
-    if (kluce.length > MAX_REPORTOV) {
-      kluce
-        .sort((a, b) => String(reporty[a].prislo).localeCompare(String(reporty[b].prislo)))
-        .slice(0, kluce.length - MAX_REPORTOV)
-        .forEach((k) => delete reporty[k]);
-    }
+    // strop na počet reportov (MAX_REPORTOV) sa teraz rieši až v handlePostHook,
+    // po zlúčení tejto (a všetkých ostatných správ dávky) pridaných reportov s
+    // ČERSTVÝM stavom — tu sa iba pridáva, nikdy nemaže.
 
     return {
       vysledok: { report: true, id, datum, zdrojDatumu: zdroj },
       mutacie: {
         ...mutacie,
-        reporty,
+        reportyPatch: { [id]: zaznamReportu },
         logRiadok: `Report na ${datum}${zdroj === "sprava" ? " (dátum podľa dňa doručenia)" : ""} — ${String(sender || "neznámy").slice(0, 40)}`,
       },
     };
@@ -840,22 +833,24 @@ async function spracujHookSpravu(env, state, msg) {
 
   if (match) {
     // telefón poznáme -> rovno zapíš (nikdy nezapisuj pri neznámom telefóne)
-    const cells = { ...(mutacie.cells || state.cells) };
-    // Pozor: prázdna bunka musí byť naozaj prázdna vo všetkých poliach, ktoré bunka drží —
-    // vrátane nahláseného nadčasu (Fáza 2). Keby sa nadčas nerátal, oprava z WhatsAppu
-    // ("v ten deň už môžem") by ticho zmazala bunku aj s nahlásenými hodinami.
+    // cellPatches je RIEDKY náhľad (kľúč -> nová hodnota, alebo null = zmazať) —
+    // nie kópia celého "cells". Vďaka tomu sa dá bezpečne poskladať na ČERSTVÝ
+    // stav tesne pred zápisom (viď handlePostHook), aj keby súbežne niekto z
+    // appky upravil INÚ bunku. cur() vidí zmeny tejto istej správy urobené o
+    // riadok vyššie (napr. keby unavailable aj correctedAvailable mali ten istý
+    // deň — nemalo by sa to stať, ale poistka nič nestojí).
     const PRAZDNA = { off: false, shift: null, duel: false, note: "", nadcas: 0 };
+    const cellPatches = {};
+    const cur = (k) => (k in cellPatches ? cellPatches[k] : (state.cells || {})[k]) || PRAZDNA;
     unavailable.forEach((iso) => {
       const k = `${iso}|${match.id}`;
-      const cur = cells[k] || PRAZDNA;
-      cells[k] = { ...cur, off: true };
+      cellPatches[k] = { ...cur(k), off: true };
     });
     correctedAvailable.forEach((iso) => {
       const k = `${iso}|${match.id}`;
-      const cur = cells[k] || PRAZDNA;
-      const next = { ...cur, off: false };
+      const next = { ...cur(k), off: false };
       const empty = !next.off && !next.shift && !next.duel && !next.note && !Number(next.nadcas);
-      if (empty) delete cells[k]; else cells[k] = next;
+      cellPatches[k] = empty ? null : next; // null = zmazať pri skladaní na čerstvý stav
     });
     const bits = [];
     if (noRestrictions) bits.push("bez obmedzení");
@@ -863,12 +858,12 @@ async function spracujHookSpravu(env, state, msg) {
     if (correctedAvailable.length) bits.push(`${correctedAvailable.length} dní opravených (znova môže)`);
     return {
       vysledok: { matched: true, crewId: match.id },
-      mutacie: { ...mutacie, cells, logRiadok: `WhatsApp bridge: ${match.name} — ${bits.join(", ") || "žiadna zmena"}` },
+      mutacie: { ...mutacie, cellPatches, logRiadok: `WhatsApp bridge: ${match.name} — ${bits.join(", ") || "žiadna zmena"}` },
     };
   }
 
   // neznámy telefón -> NIKDY nezapisuj priamo, iba zaraď do fronty na potvrdenie adminom
-  const pendingHookDoteraz = mutacie.pendingHook || state.pendingHook || [];
+  const pendingHookDoteraz = state.pendingHook || [];
   const uzVoFronte = msgId && pendingHookDoteraz.some((e) => e.msgId && e.msgId === msgId);
   if (uzVoFronte) {
     // druhá poistka proti dvom bridgeom — pečiatka v KV mohla ešte nebyť vidieť
@@ -888,8 +883,10 @@ async function spracujHookSpravu(env, state, msg) {
     noRestrictions,
     isCorrection,
   };
-  const pendingHook = [entry, ...pendingHookDoteraz].slice(0, 200);
-  return { vysledok: { queued: true, id: entry.id }, mutacie: { ...mutacie, pendingHook } };
+  // pendingHookNove je iba TÁTO nová položka — pri skladaní na čerstvý stav v
+  // handlePostHook sa prepojí na čerstvo prečítanú frontu, nie na túto (možno
+  // zastaranú) kópiu.
+  return { vysledok: { queued: true, id: entry.id }, mutacie: { ...mutacie, pendingHookNove: [entry] } };
 }
 
 /* Bridge pošle jednu alebo viac správ naraz (dávka = "messages"). Staršia appka
@@ -919,8 +916,18 @@ async function handlePostHook(request, env) {
   // bridge sa každou dávkou hlási, že žije
   if (body.bridgeId) await bridgePing(env, body.bridgeId, { stav: "beží" });
 
-  let state = await readState(env);
-  let mutacie = {};
+  const state = await readState(env);
+  /* Mutácie z celej dávky sa vedú RIEDKO (iba to, čo sa naozaj dotklo), nie
+     ako kópie celých polí "cells"/"chaty"/"reporty"/"pendingHook" — vďaka
+     tomu sa dajú tesne pred zápisom bezpečne poskladať na ČERSTVO prečítaný
+     stav (viď nižšie), nie iba na ten spred LLM volaní. Keby sa niesli plné
+     kópie polí (ako predtým), aj druhé čítanie tesne pred zápisom by bolo na
+     nič — čerstvé pole by sa aj tak celé prepísalo starou kópiou pre
+     ktorékoľvek pole, ktorého sa dávka dotkla. */
+  let cellPatches = {};   // "iso|crewId" -> nová bunka, alebo null = zmazať
+  let chatyPatch = {};    // chatId -> záznam chatu
+  let reportyPatch = {};  // id -> záznam reportu (dávka iba pridáva, nikdy nemaže)
+  let pendingHookNove = []; // nové položky frontu z tejto dávky, najnovšia prvá
   const logRiadky = [];
   const vysledky = [];
   let chyba502 = false;
@@ -928,35 +935,69 @@ async function handlePostHook(request, env) {
   for (const surova of dávka) {
     const msg = body.bridgeId && !surova.bridgeId ? { ...surova, bridgeId: body.bridgeId } : surova;
     // ďalšia správa v tej istej dávke musí vidieť mutácie tých pred ňou (napr.
-    // dve správy od toho istého človeka v rovnakej dávke sa nesmú prepísať)
-    const priebeznyStav = { ...state, ...mutacie };
+    // dve správy od toho istého človeka v rovnakej dávke sa nesmú prepísať) —
+    // preto sa riedke mutácie doterajších správ poskladajú na pôvodný "state"
+    // len pre POTREBY SPRACOVANIA tejto dávky (priebežný náhľad), nie pre
+    // záverečný zápis (ten použije čerstvý stav, viď nižšie).
+    const priebeznyCells = { ...state.cells };
+    for (const [k, v] of Object.entries(cellPatches)) { if (v === null) delete priebeznyCells[k]; else priebeznyCells[k] = v; }
+    const priebeznyStav = {
+      ...state,
+      cells: priebeznyCells,
+      chaty: { ...state.chaty, ...chatyPatch },
+      reporty: { ...state.reporty, ...reportyPatch },
+      pendingHook: [...pendingHookNove, ...(state.pendingHook || [])],
+    };
     const { vysledok, mutacie: m } = await spracujHookSpravu(env, priebeznyStav, msg);
     vysledky.push(vysledok);
     if (vysledok?.error) chyba502 = true;
     if (m) {
-      const { logRiadok, ...zvysok } = m;
-      mutacie = { ...mutacie, ...zvysok };
+      const { logRiadok, chatyPatch: cp, reportyPatch: rp, cellPatches: clp, pendingHookNove: phn } = m;
+      if (cp) chatyPatch = { ...chatyPatch, ...cp };
+      if (rp) reportyPatch = { ...reportyPatch, ...rp };
+      if (clp) cellPatches = { ...cellPatches, ...clp };
+      if (phn && phn.length) pendingHookNove = [...phn, ...pendingHookNove];
       if (logRiadok) logRiadky.push(logRiadok);
     }
   }
 
-  if (Object.keys(mutacie).length || logRiadky.length) {
+  const maZmeny = Object.keys(cellPatches).length || Object.keys(chatyPatch).length
+    || Object.keys(reportyPatch).length || pendingHookNove.length || logRiadky.length;
+
+  if (maZmeny) {
     /* Medzi čítaním na začiatku tejto dávky a zápisom tu mohlo prejsť aj
        desiatky sekúnd (LLM volanie na každú správu v dávke) — počas toho
        mohol niekto z appky bežne uložiť /data (napr. zmenu v štábe, sadzbách,
-       kontaktoch...). Zápis tu by inak vzal PÔVODNÝ (zastaraný) "state" ako
-       základ a takú súbežnú zmenu by ticho prepísal späť na starú hodnotu —
-       presne to "appka to ticho prepísala", čomu sa tento projekt vyhýba.
-       Preto sa tesne pred zápisom číta znova (rovnaký dôvod ako druhé čítanie
-       v spracujDispoMail nižšie) a mutácie z tejto dávky sa poskladajú na
-       ČERSTVÝ stav, nie na ten spred LLM volaní. zabudniKes je nutný — bez
-       neho by readState vrátil z medzipamäte TEJTO ISTEJ požiadavky presne
-       to isté (zastaraný) čítanie ako na začiatku, akoby sa v KV odvtedy nič
-       nezmenilo. */
+       kontaktoch, ale pokojne aj v tej istej bunke rozpisu alebo tej istej
+       fronte, ktorej sa dotkla táto dávka). Preto sa tesne pred zápisom číta
+       znova (rovnaký dôvod ako druhé čítanie v spracujDispoMail nižšie) a
+       riedke mutácie z tejto dávky sa poskladajú na ČERSTVÝ stav — nielen pre
+       polia, ktorých sa dávka nedotkla (tie by aj plná kópia ochránila), ale
+       aj pre cells/chaty/reporty/pendingHook, ktorých sa dávka priamo dotýka.
+       zabudniKes je nutný — bez neho by readState vrátil z medzipamäte TEJTO
+       ISTEJ požiadavky presne to isté (zastarané) čítanie ako na začiatku. */
     zabudniKes(env, STATE_KEY);
     const cerstvyStav = await readState(env);
+
+    const cells = { ...cerstvyStav.cells };
+    for (const [k, v] of Object.entries(cellPatches)) { if (v === null) delete cells[k]; else cells[k] = v; }
+
+    const chaty = { ...cerstvyStav.chaty, ...chatyPatch };
+
+    const reporty = { ...cerstvyStav.reporty, ...reportyPatch };
+    // strop na počet reportov sa počíta až TERAZ, na zlúčenom (čerstvom) stave
+    const kluceReportov = Object.keys(reporty);
+    if (kluceReportov.length > MAX_REPORTOV) {
+      kluceReportov
+        .sort((a, b) => String(reporty[a].prislo).localeCompare(String(reporty[b].prislo)))
+        .slice(0, kluceReportov.length - MAX_REPORTOV)
+        .forEach((k) => delete reporty[k]);
+    }
+
+    const pendingHook = [...pendingHookNove, ...(cerstvyStav.pendingHook || [])].slice(0, 200);
+
     const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...cerstvyStav.log].slice(0, 400);
-    const next = { ...cerstvyStav, ...mutacie, log, version: cerstvyStav.version + 1 };
+    const next = { ...cerstvyStav, cells, chaty, reporty, pendingHook, log, version: cerstvyStav.version + 1 };
     await writeState(env, next);
     // dávka s jednou správou dostane rovnakú odpoveď ako predtým (bridge na to spolieha v logoch)
     if (!Array.isArray(body.messages)) return json({ ...vysledky[0], version: next.version }, chyba502 ? 502 : 200, env);
