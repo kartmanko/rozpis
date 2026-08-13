@@ -45,11 +45,14 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
     }
   };
 
+  // Tip appky nesmie sám priradiť stĺpec niekomu z cudzej sekcie.
+  const povoleny = useMemo(() => crew.filter((c) => (dovolene || []).includes(c.id)), [crew, dovolene]);
+
   const rozbor = useMemo(() => {
     const h = harky[harok];
     if (!h) return null;
-    return analyzujTabulku(h.aoa, { orientacia, crew });
-  }, [harky, harok, orientacia, crew]);
+    return analyzujTabulku(h.aoa, { orientacia, crew: povoleny });
+  }, [harky, harok, orientacia, povoleny]);
 
   /* Tip appky sa použije len ako východisko — čo admin prepne, má prednosť. */
   const aktualnePriradenie = useMemo(() => {
@@ -153,7 +156,7 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
                     className={`px-2 py-1 rounded-lg text-sm border ${aktualnePriradenie[o.c] ? "bg-f-panel2 border-f-border text-f-text" : "bg-f-r/20 border-f-r text-f-r"}`}
                   >
                     <option value="">— kto to je? —</option>
-                    {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {povoleny.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               ))}
