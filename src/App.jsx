@@ -460,7 +460,7 @@ export default function App() {
             setUzavierkyState(s.uzavierky || []);
             setDenneRolyState(s.denneRoly || []);
             setPendingHookState(s.pendingHook || []);
-            setCells(zlucene.cells);
+            commitZlucenieCells(zlucene.cells);
             setLog(zlucene.log);
             setVersion(s.version);
             zakladRef.current = {
@@ -535,6 +535,21 @@ export default function App() {
     },
     [addLog]
   );
+
+  /* --- zápis buniek po automatickom zlúčení pri strete (skusZlucit) ---
+     Zámerne NIE cez commitCells: sem patriaci stav už obsahuje cudziu zmenu,
+     ktorú server práve prijal. Keby sme ho pridali na zásobník krokov späť,
+     Ctrl/Cmd+Z by mohol skočiť na stav spred zlúčenia — a keďže "dirty" sa tým
+     nastaví, appka by ho o chvíľu sama znova uložila, tentoraz BEZ konfliktu
+     (baseVersion už sedí), a ticho by tak prepísala tú práve zlúčenú cudziu
+     zmenu. Zlúčenie preto radšej založí nový "čistý štart" — zásobníky krokov
+     späť/znova sa vyprázdnia, nech Ctrl+Z cez zlúčenie neprekĺzne. */
+  const commitZlucenieCells = useCallback((cells) => {
+    setCells(cells);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setHistoryVersion((v) => v + 1);
+  }, []);
 
   const undoCells = useCallback(() => {
     if (!undoStackRef.current.length) return;
@@ -956,7 +971,14 @@ export default function App() {
     const [colLo, colHi] = colA < colB ? [colA, colB] : [colB, colA];
     const out = [];
     for (let r = rowLo; r <= rowHi; r++) {
-      for (let c = colLo; c <= colHi; c++) out.push(key(filteredDays[r].iso, filteredCrew[c].id));
+      for (let c = colLo; c <= colHi; c++) {
+        const clovek = filteredCrew[c];
+        // rovnaká hranica ako pri jednotlivom kliku (accessFor nižšie) — inak by
+        // hromadný výber (ťahanie/Shift) mohol nabrať aj cudziu sekciu, ktorú
+        // vedúci sekcie nevidí na úpravu, a server by potom zamietol CELÚ dávku.
+        if (accessFor(clovek.id) === "none") continue;
+        out.push(key(filteredDays[r].iso, clovek.id));
+      }
     }
     return out;
   };
@@ -1043,9 +1065,10 @@ export default function App() {
       setSel(pos);
       return;
     }
+    const isRangeSelect = Boolean(event?.shiftKey && anchorRef.current);
+    if (!isRangeSelect && accessFor(pos.crewId) === "none") return; // rovnaká hranica ako mimo hromadného výberu
     const k = key(pos.iso, pos.crewId);
     const anchor = anchorRef.current;
-    const isRangeSelect = Boolean(event?.shiftKey && anchor);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (isRangeSelect) {
@@ -1071,6 +1094,7 @@ export default function App() {
 
   // klik na hlavičku stĺpca (meno) v režime výberu -> označí celý stĺpec (Shift/Ctrl/Cmd = pridá k výberu)
   const onSelectColumn = (crewId, event) => {
+    if (accessFor(crewId) === "none") return; // cudzia sekcia — nedá sa označiť ani celý stĺpec naraz
     const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
     const colKeys = filteredDays.map((d) => key(d.iso, crewId));
     setSelectedKeys((prev) => {
@@ -1087,7 +1111,8 @@ export default function App() {
   // klik na dátumovú bunku v režime výberu -> označí celý riadok (deň)
   const onSelectRow = (iso, event) => {
     const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
-    const rowKeys = filteredCrew.map((c) => key(iso, c.id));
+    // cudziu sekciu vynecháme — rovnaká hranica ako pri jednotlivom kliku (accessFor)
+    const rowKeys = filteredCrew.filter((c) => accessFor(c.id) !== "none").map((c) => key(iso, c.id));
     setSelectedKeys((prev) => {
       if (!additive) return new Set(rowKeys);
       const allSelected = rowKeys.every((k) => prev.has(k));
@@ -1153,7 +1178,7 @@ export default function App() {
 
       if ((e.key === "Delete" || e.key === "Backspace") && selectedKeys.size) {
         e.preventDefault();
-        applyBulk({ off: false, shift: null, duel: false });
+        applyBulk({ off: false, shift: null, duel: false, nadcas: 0 });
         return;
       }
 
@@ -1224,12 +1249,14 @@ export default function App() {
       setStatus("Odložené zmeny sa už vrátiť nedajú — rozpis sa medzitým zmenil. Nastav ich, prosím, znova.");
       return;
     }
-    setCells(zlucene.cells);
+    // rovnaký dôvod ako pri automatickom zlúčení pri strete (viď commitZlucenieCells) —
+    // krok späť nesmie vedieť skočiť spred tohto zlúčenia.
+    commitZlucenieCells(zlucene.cells);
     setLog(zlucene.log);
     setDirty(true);
     setOdlozene(null);
     setStatus("Odložené zmeny vrátené — ukladám.");
-  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log]);
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, commitZlucenieCells]);
 
   const zahodOdlozene = useCallback(() => {
     zahodNeulozene();

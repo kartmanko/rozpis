@@ -14,7 +14,7 @@ export default function BulkActionBar({ count, allowDuel, onApply, onClearSelect
         <button onClick={onExit} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-1 items-center">
-        <button onClick={() => onApply({ off: false, shift: null, duel: false })} disabled={!count} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted disabled:opacity-40 transition-colors">Vyčistiť</button>
+        <button onClick={() => onApply({ off: false, shift: null, duel: false, nadcas: 0 })} disabled={!count} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted disabled:opacity-40 transition-colors">Vyčistiť</button>
         <button onClick={() => onApply({ off: true })} disabled={!count} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-accent hover:brightness-110 text-f-ink disabled:opacity-40 transition-colors">× Nemôže</button>
         {DAY_SHIFTS.map((s) => (
           <button key={s} onClick={() => onApply({ shift: s })} disabled={!count} className={`px-3 py-1.5 rounded-lg text-sm font-mono font-bold text-f-ink disabled:opacity-40 transition-colors hover:brightness-110 ${SHIFT_BG[s]}`}>{s}</button>
