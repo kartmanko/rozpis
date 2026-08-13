@@ -16,6 +16,8 @@
    Kľúč servera (VAPID) nie je nikde v repozitári ani v kóde — worker si ho pri
    prvom použití sám vyrobí a odloží do KV. */
 
+import { zaradDoRadu } from "./rad.js";
+
 const KLUC_VAPID = "push:vapid";
 const PREDPONA_ODBERU = "push:sub:";
 const TEXT = new TextEncoder();
@@ -64,17 +66,35 @@ async function hkdf(sol, ikm, info, dlzka) {
 
 /* ---------- kľúč servera (VAPID) ---------- */
 
-/** Vráti kľúčový pár servera. Keď ešte nie je, vyrobí ho a odloží do KV. */
+/** Vráti kľúčový pár servera. Keď ešte nie je, vyrobí ho a odloží do KV.
+
+    Bežný prípad (kľúč už v KV existuje) sa prečíta rovno, bez radu — nech sa
+    každé odoslanie správy zbytočne nesériovo nezaraďuje za ostatné. Iba prvé
+    použitie po nasadení appky (kým "push:vapid" v KV ešte vôbec nie je) ide
+    cez zaradDoRadu: to je jediná chvíľa, keď sem môže naraz dorobiť viac
+    súbežných požiadaviek naraz — napr. viac ľudí zapne upozornenia zhruba v
+    tom istom momente. Bez poistky by si každá vyrobila VLASTNÝ kľúčový pár a
+    ten, kto zapíše do KV ako posledný, by "vyhral" — prehliadače, ktoré si
+    medzitým stihli predplatiť push u výrobcu (Google/Apple/Mozilla) s
+    VEREJNÝM kľúčom z prehratého páru, by odvtedy dostávali správy podpísané
+    iným, nesediacim súkromným kľúčom a výrobca by ich ticho odmietal
+    (401/403) — appka by naďalej ukazovala "zapnuté", človek by upozornenia
+    nikdy nedostal a nemal by prečo to tušiť. */
 export async function vapidKluce(env) {
   const ulozene = await env.ROZPIS_KV.get(KLUC_VAPID, "json");
   if (ulozene && ulozene.privateJwk && ulozene.verejny) return ulozene;
 
-  const par = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-  const privateJwk = await crypto.subtle.exportKey("jwk", par.privateKey);
-  const publicJwk = await crypto.subtle.exportKey("jwk", par.publicKey);
-  const zaznam = { privateJwk, verejny: bajtyNaB64url(surovyZJwk(publicJwk)) };
-  await env.ROZPIS_KV.put(KLUC_VAPID, JSON.stringify(zaznam));
-  return zaznam;
+  return zaradDoRadu(async () => {
+    const znova = await env.ROZPIS_KV.get(KLUC_VAPID, "json");
+    if (znova && znova.privateJwk && znova.verejny) return znova;
+
+    const par = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const privateJwk = await crypto.subtle.exportKey("jwk", par.privateKey);
+    const publicJwk = await crypto.subtle.exportKey("jwk", par.publicKey);
+    const zaznam = { privateJwk, verejny: bajtyNaB64url(surovyZJwk(publicJwk)) };
+    await env.ROZPIS_KV.put(KLUC_VAPID, JSON.stringify(zaznam));
+    return zaznam;
+  });
 }
 
 /** Hlavička "Authorization: vapid …" — ňou sa server predstaví výrobcovi prehliadača. */
