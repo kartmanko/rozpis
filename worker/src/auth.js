@@ -17,6 +17,7 @@
  */
 
 import { kesovane, prepisKes } from "./kes.js";
+import { zaradDoRadu } from "./rad.js";
 
 /* ---------- role ---------- */
 
@@ -536,15 +537,25 @@ export function publicUser(u) {
   };
 }
 
+/* Odtlačok aktuálneho zoznamu používateľov — rovnaký účel ako "version" pri
+   /data (optimistic concurrency), len bez potreby počítadla v KV. Používa sa
+   na to, aby POST /auth/users vedel zistiť, že medzitým niekto INÝ (najčastejšie
+   automatická synchronizácia s kontaktami z POST /data, ale aj iná otvorená
+   session toho istého admina) zapísal users_v1 zmenu, o ktorej klient, čo
+   práve odosiela svoj formulár, ešte nevie. */
+async function usersHash(users) {
+  return sha256hex(JSON.stringify(users.map(publicUser)));
+}
+
 /** GET /auth/users -> zoznam používateľov (iba admin) */
 export async function handleGetUsers(request, env, json) {
   const me = await getSessionUser(request, env);
   if (!me || !roleCaps(me.role).users) return json({ error: "Na správu používateľov nemáš právo." }, 403, env);
   const users = await readUsers(env);
-  return json({ users: users.map(publicUser), log: await readAuthLog(env) }, 200, env);
+  return json({ users: users.map(publicUser), log: await readAuthLog(env), hash: await usersHash(users) }, 200, env);
 }
 
-/** POST /auth/users  { users: [...] } -> uloží zoznam (iba admin) */
+/** POST /auth/users  { users: [...], baseHash } -> uloží zoznam (iba admin) */
 export async function handlePostUsers(request, env, json) {
   const me = await getSessionUser(request, env);
   if (!me || !roleCaps(me.role).users) return json({ error: "Na správu používateľov nemáš právo." }, 403, env);
@@ -574,11 +585,50 @@ export async function handlePostUsers(request, env, json) {
     return json({ error: "V zozname musí zostať aspoň jeden aktívny hlavný admin." }, 400, env);
   }
 
-  const before = await readUsers(env);
-  await writeUsers(env, users);
-  await appendAuthLog(env, `${me.name || me.email || "admin"} upravil používateľov (${before.length} → ${users.length})`);
+  /* Rovnaká poistka ako pri /data (viď rad.js): users_v1 zapisuje aj POST /data,
+     keď sa zmenia kontakty (synchronizujPouzivatelovZKontaktov v index.js). Bez
+     zaradenia do TOHO ISTÉHO radu by admin, čo práve niekomu zrušil prístup tu,
+     a súbežné uloženie kontaktov mohli obaja prečítať tú istú verziu users_v1 —
+     a ten, kto zapíše druhý, by ticho prepísal zmenu prístupu, ktorú admin práve
+     urobil, bez akejkoľvek chyby či upozornenia.
 
-  return json({ users: users.map(publicUser) }, 200, env);
+     Rad sám osebe ale nestačí: appka posiela CELÝ výsledný zoznam (nie iba to,
+     čo sa zmenilo), takže aj sériovo zoradený zápis by ticho prepísal medzičasom
+     pribudnutú zmenu (napr. synchronizáciu z kontaktov), keby admin vychádzal zo
+     staršieho snímku. Preto sa — rovnako ako baseVersion pri /data — porovná
+     odtlačok zoznamu, z ktorého klient vychádzal (baseHash), s tým, čo je v KV
+     naozaj TERAZ (čerstvo prečítané vnútri radu) — a pri nezhode sa namiesto
+     ticho prepísania vráti 409 s aktuálnym zoznamom, nech si to appka poskladá
+     alebo aspoň nezahodí cudziu zmenu bez varovania.
+
+     Na rozdiel od baseVersion pri /data sa "baseHash" kontroluje, iba KEĎ ho
+     klient pošle — appka (UsersPanel.jsx) ho posiela vždy, ale toto je JEDINÝ
+     endpoint, na ktorom bola predtým žiadna takáto kontrola, takže ho môžu
+     volať aj iné, staršie integrácie, ktoré o odtlačku nevedia. Vynútiť ho aj
+     im by znamenalo, že by odteraz vždy dostali 409 — teda by prestali fungovať
+     úplne, čo je horšie než pôvodné (nechránené) správanie, ktoré aspoň niečo
+     zapísalo. Skutočný prehliadačový klient je chránený vždy (posiela ho vždy),
+     ostatní volajúci majú rovnaké správanie ako predtým. */
+  const vysledok = await zaradDoRadu(async () => {
+    const cerstvi = await readUsers(env);
+    const cerstvyOdtlacok = await usersHash(cerstvi);
+    if (body.baseHash !== undefined && body.baseHash !== null && cerstvyOdtlacok !== String(body.baseHash)) {
+      return { stret: true, cerstvi, cerstvyOdtlacok };
+    }
+    await writeUsers(env, users);
+    await appendAuthLog(env, `${me.name || me.email || "admin"} upravil používateľov (${cerstvi.length} → ${users.length})`);
+    return { stret: false, odtlacok: await usersHash(users) };
+  });
+
+  if (vysledok.stret) {
+    return json({
+      error: "Medzitým zoznam zmenil niekto iný (napr. synchronizácia s kontaktami) — načítaj si ho znova a zopakuj úpravu.",
+      users: vysledok.cerstvi.map(publicUser),
+      hash: vysledok.cerstvyOdtlacok,
+    }, 409, env);
+  }
+
+  return json({ users: users.map(publicUser), hash: vysledok.odtlacok }, 200, env);
 }
 
 /* ---------- kontrola práv pri ukladaní rozpisu ---------- */

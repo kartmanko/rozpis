@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchUsers, saveUsers } from "../api";
+import { fetchUsers, saveUsers, ApiError } from "../api";
 import { USER_ROLES } from "../permissions";
 import { kontrolaPristupov } from "../kontrolaPristupov";
 
@@ -10,6 +10,11 @@ export default function UsersPanel({ crew, onClose }) {
   // snímka toho, čo je naposledy naisto uložené na serveri (alebo práve načítané) —
   // porovnaním s "users" sa dá zistiť, či "Zavrieť" práve teraz zahadzuje niečo neuložené.
   const [nacitaniUsers, setNacitaniUsers] = useState([]);
+  // odtlačok toho istého snímku — posiela sa na server pri uložení (rovnaká
+  // úloha ako baseVersion pri /data), nech server vie zistiť, že medzitým
+  // zoznam zmenil niekto iný (typicky automatická synchronizácia s kontaktami)
+  // a nemá tú zmenu ticho prepísať tým, čo je práve na obrazovke.
+  const [zakladHash, setZakladHash] = useState("");
   const [authLog, setAuthLog] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
@@ -24,6 +29,7 @@ export default function UsersPanel({ crew, onClose }) {
         if (cancelled) return;
         setUsers(d.users || []);
         setNacitaniUsers(d.users || []);
+        setZakladHash(d.hash || "");
         setAuthLog(d.log || []);
       } catch (e) {
         if (!cancelled) setErr(e.message);
@@ -58,12 +64,22 @@ export default function UsersPanel({ crew, onClose }) {
     setErr("");
     setMsg("");
     try {
-      const d = await saveUsers(users);
+      const d = await saveUsers(users, zakladHash);
       const ulozeni = d.users || users;
       setUsers(ulozeni);
       setNacitaniUsers(ulozeni);
+      setZakladHash(d.hash || "");
       setMsg("Uložené.");
     } catch (e) {
+      /* Stret (409) — medzitým zoznam zmenil niekto iný (najčastejšie
+         synchronizácia s kontaktami). NEPREPISUJEME "users" (rozostavané zmeny
+         na obrazovke by tak potichu zmizli) — iba sa poznačí čerstvý základ zo
+         servera, nech je vidno, čo sa medzitým zmenilo, a prípadné ďalšie
+         "Uložiť" už ide s platným odtlačkom. */
+      if (e instanceof ApiError && e.status === 409 && e.telo?.users) {
+        setNacitaniUsers(e.telo.users);
+        setZakladHash(e.telo.hash || "");
+      }
       setErr(e.message);
     }
     setBusy(false);

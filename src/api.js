@@ -177,8 +177,8 @@ export async function fetchUsers() {
   return request("/auth/users", { method: "GET" });
 }
 
-export async function saveUsers(users) {
-  return jsonPost("/auth/users", { users });
+export async function saveUsers(users, baseHash) {
+  return jsonPost("/auth/users", { users, baseHash });
 }
 
 /* ---------- builder dispozícií (sekcia 2 finálneho briefu) ---------- */

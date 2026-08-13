@@ -58,6 +58,7 @@ import {
 } from "./auth.js";
 import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
 import { sKesou, kesovane, prepisKes, zabudniKes } from "./kes.js";
+import { zaradDoRadu } from "./rad.js";
 
 const STATE_KEY = "state_v1";
 
@@ -274,25 +275,10 @@ async function writeState(env, state) {
   prepisKes(env, STATE_KEY, text); // čítanie nižšie v tej istej požiadavke už vidí nový stav
 }
 
-/* Cloudflare KV nemá compare-and-swap — "prečítaj, over verziu, zapíš" v
-   handlePostData nižšie preto nie je samo o sebe atomické. Bez poistky by dve
-   súbežné uloženia spracované TÝM ISTÝM izolátorom (bežné pri tomto rozsahu
-   premávky — Cloudflare izolátor typicky ostáva "teplý" a strieda viacero
-   požiadaviek za sebou) mohli obe prečítať tú istú verziu, obe ňou prejsť, a
-   druhý zápis by ticho prepísal prvý — presne to "server to ticho prepísal",
-   čomu sa má baseVersion/409 vyhýbať. Rad tu zoradí zápisy tohto izolátora za
-   sebou, nech sa to nestane. Naprieč RÔZNYMI izolátormi (napr. dve rôzne edge
-   lokality naraz) to garanciu nedáva — to by vyžadovalo Durable Object, čo je
-   zmena mimo rozsahu tejto opravy; toto zachytí prevažnú väčšinu prípadov. */
-let stavRad = Promise.resolve();
-function zaradDoRadu(uloha) {
-  const tento = stavRad.then(uloha, uloha);
-  stavRad = tento.then(
-    () => {},
-    () => {} // chyba jednej úlohy nesmie zablokovať rad pre ďalšie čakajúce
-  );
-  return tento;
-}
+// zaradDoRadu (spoločný rad na sériové "prečítaj, over, zapíš" nad KV) je teraz
+// v rad.js — dôvod aj podrobnosti sú v komentári tam. Dôležité: users_v1 zapisuje
+// aj POST /auth/users (auth.js, handlePostUsers) — preto musí ísť o TEN ISTÝ,
+// zdieľaný rad, nie o vlastný lokálny v tomto module.
 
 async function handleGetData(request, env) {
   // Rozpis vidí iba prihlásený človek (Fáza 1: prístup povinný pre všetkých).
