@@ -11,7 +11,7 @@
    Len čo sa prekrývajú, zlučovať sa neskúša a rozhodne človek; nič cudzie sa
    nikdy neprepíše potichu. */
 
-const rovnake = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+export const rovnake = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Kľúče buniek, ktoré sa medzi dvoma stavmi líšia (vrátane vymazaných). */
 export function zmeneneKluce(zaklad = {}, novy = {}) {

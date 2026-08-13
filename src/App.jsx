@@ -35,7 +35,7 @@ import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
-import { skusZlucit, zmeneneKluce } from "./zlucenie";
+import { skusZlucit, zmeneneKluce, rovnake } from "./zlucenie";
 import { ulozNeulozene, nacitajNeulozene, zahodNeulozene } from "./neulozene";
 
 const defaultCrew = () => DEFAULT_NAMES.map((n, i) => ({ id: "c" + i, name: n, aliases: [], role: "kamera" }));
@@ -481,17 +481,24 @@ export default function App() {
                iba preto, že sme sa toho ani nedotkli, takže jeho verzia je tá
                správna. Bez toho by sme mu vzápätí prepísali napr. zmenu v štábe
                našou starou kópiou. */
-            if (s.crew?.length) setCrew(s.crew);
-            setNadState(s.nad || {});
-            setSadzbyState(s.sadzby || {});
-            setChatyState(s.chaty || {});
-            setReportyState(s.reporty || {});
-            setDispoState(s.dispo || {});
-            setPendingDispoState(s.pendingDispo || []);
-            setKontaktyState(s.kontakty || []);
-            setUzavierkyState(s.uzavierky || []);
-            setDenneRolyState(s.denneRoly || []);
-            setPendingHookState(s.pendingHook || []);
+            /* Rovnaká poistka ako pri bunkách (commitZlucenieCells): "moje[cast] ===
+               zaklad[cast]" vyššie v skusZlucit dokazuje iba to, že sa toto pole
+               nedotklo v okamihu, keď sa robil snímok pred odoslaním. Kým bolo
+               uloženie na ceste k serveru (a späť so 409-kou), človek mohol napr. v
+               paneli Kontakty alebo Sadzby medzitým niečo naklikať — to je už v
+               ŽIVOM stave, ale zlúčenie o tom nevie. Preberáme zo servera iba vtedy,
+               keď sa živý stav odvtedy nezmenil; inak necháme živú (novšiu) zmenu. */
+            setCrew((prevZive) => (s.crew?.length && rovnake(prevZive, odoslane.crew) ? s.crew : prevZive));
+            setNadState((prevZive) => (rovnake(prevZive, odoslane.nad) ? (s.nad || {}) : prevZive));
+            setSadzbyState((prevZive) => (rovnake(prevZive, odoslane.sadzby) ? (s.sadzby || {}) : prevZive));
+            setChatyState((prevZive) => (rovnake(prevZive, odoslane.chaty) ? (s.chaty || {}) : prevZive));
+            setReportyState((prevZive) => (rovnake(prevZive, odoslane.reporty) ? (s.reporty || {}) : prevZive));
+            setDispoState((prevZive) => (rovnake(prevZive, odoslane.dispo) ? (s.dispo || {}) : prevZive));
+            setPendingDispoState((prevZive) => (rovnake(prevZive, odoslane.pendingDispo) ? (s.pendingDispo || []) : prevZive));
+            setKontaktyState((prevZive) => (rovnake(prevZive, odoslane.kontakty) ? (s.kontakty || []) : prevZive));
+            setUzavierkyState((prevZive) => (rovnake(prevZive, odoslane.uzavierky) ? (s.uzavierky || []) : prevZive));
+            setDenneRolyState((prevZive) => (rovnake(prevZive, odoslane.denneRoly) ? (s.denneRoly || []) : prevZive));
+            setPendingHookState((prevZive) => (rovnake(prevZive, odoslane.pendingHook) ? (s.pendingHook || []) : prevZive));
             commitZlucenieCells(zlucene.cells, odoslane.cells);
             setLog(zlucene.log);
             setVersion(s.version);
