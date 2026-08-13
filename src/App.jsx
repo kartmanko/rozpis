@@ -1231,6 +1231,17 @@ export default function App() {
     await load();
   };
 
+  /* Tlačidlo "Obnoviť" v hlavičke. Na rozdiel od automatického obnovenia na
+     pozadí (to má vlastnú poistku — pozri "mozeme" nižšie) toto tlačidlo
+     donedávna volalo load() rovno, bez akejkoľvek poistky — človek s
+     neuloženou zmenou (napr. čaká sa na odstup pri výpadku signálu) si tak
+     jedným klikom na "Obnoviť" vedel svoju vlastnú zmenu ticho zahodiť, bez
+     upozornenia. Rovnaké varovanie ako pri riešení stretu verzií (nižšie). */
+  const obnovRucne = () => {
+    if (dirty && canSaveAnything && !confirm("Obnoviť zo servera? Zahodí to tvoje ešte neuložené zmeny.")) return;
+    load();
+  };
+
   /* --- zmeny, ktoré sa minule nepodarilo uložiť (slabý signál) --- */
 
   /* Ponúknu sa až po načítaní zo servera — až vtedy je s čím ich porovnať.
@@ -1315,7 +1326,7 @@ export default function App() {
           <div className="grow" />
 
           <div ref={menuRef} className="flex items-center gap-1 relative">
-            <button title="Obnoviť" onClick={load} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">⟳</button>
+            <button title="Obnoviť" onClick={obnovRucne} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">⟳</button>
 
             <button title="Export" onClick={() => setMenu(menu === "export" ? null : "export")} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">↓</button>
             {menu === "export" && (
