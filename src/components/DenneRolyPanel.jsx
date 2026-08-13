@@ -45,12 +45,17 @@ export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz,
     onUloz(vybranyIso, { reziser: reziser || null, storyProduceri });
   };
 
+  const handleZavriet = () => {
+    if (zmenene && !confirm("Zavrieť? Zahodí to zmenu, ktorú si ešte neuložil(a).")) return;
+    onClose();
+  };
+
   return (
     <div data-testid="denne-roly-panel" className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Denné role</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
       <div className="text-[11px] text-f-faint2 mb-2.5 leading-relaxed">

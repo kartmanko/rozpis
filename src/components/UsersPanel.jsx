@@ -7,6 +7,9 @@ import { kontrolaPristupov } from "../kontrolaPristupov";
    v rozpise patrí. Vidí to iba hlavný admin. */
 export default function UsersPanel({ crew, onClose }) {
   const [users, setUsers] = useState([]);
+  // snímka toho, čo je naposledy naisto uložené na serveri (alebo práve načítané) —
+  // porovnaním s "users" sa dá zistiť, či "Zavrieť" práve teraz zahadzuje niečo neuložené.
+  const [nacitaniUsers, setNacitaniUsers] = useState([]);
   const [authLog, setAuthLog] = useState([]);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState("");
@@ -20,6 +23,7 @@ export default function UsersPanel({ crew, onClose }) {
         const d = await fetchUsers();
         if (cancelled) return;
         setUsers(d.users || []);
+        setNacitaniUsers(d.users || []);
         setAuthLog(d.log || []);
       } catch (e) {
         if (!cancelled) setErr(e.message);
@@ -55,7 +59,9 @@ export default function UsersPanel({ crew, onClose }) {
     setMsg("");
     try {
       const d = await saveUsers(users);
-      setUsers(d.users || users);
+      const ulozeni = d.users || users;
+      setUsers(ulozeni);
+      setNacitaniUsers(ulozeni);
       setMsg("Uložené.");
     } catch (e) {
       setErr(e.message);
@@ -63,12 +69,19 @@ export default function UsersPanel({ crew, onClose }) {
     setBusy(false);
   };
 
+  const zmenene = JSON.stringify(users) !== JSON.stringify(nacitaniUsers);
+
+  const handleZavriet = () => {
+    if (zmenene && !confirm("Zavrieť? Zahodí to zmeny v prístupoch, ktoré si ešte neuložil(a).")) return;
+    onClose();
+  };
+
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center mb-2.5">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Prístupy</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
       <p className="text-xs text-f-faint leading-relaxed mb-3">

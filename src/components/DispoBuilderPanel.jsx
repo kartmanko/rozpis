@@ -39,6 +39,9 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
   const [nahlad, setNahlad] = useState(null); // null | "nacitava" | {subject, html, text, prijemcovia} | { chyba }
   const [odoslane, setOdoslane] = useState(null); // null | "posiela" | { ok:true, poslaneNa } | { chyba }
   const [nacitanyDatum, setNacitanyDatum] = useState(datum);
+  // snímka bloku v momente, keď sa naposledy predvyplnil zo servera/dňa — porovnaním
+  // s aktuálnym "blok" sa dá zistiť, či je rozostavané niečo, čo by "Zavrieť" ticho zahodilo.
+  const [nacitanyBlok, setNacitanyBlok] = useState(prazdnyBlok(""));
 
   /* Pri zmene dňa sa predvyplní z už existujúcej (rozostavanej alebo potvrdenej)
      dispo na ten deň — robí sa to takto (nie useEffect nad [datum, dispo]), nech
@@ -48,11 +51,12 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
      Rovnaký dôvod a rovnaký vzor ako v DenneRolyPanel. */
   if (nacitanyDatum !== datum) {
     setNacitanyDatum(datum);
+    let novy;
     if (!datum) {
-      setBlok(prazdnyBlok(""));
+      novy = prazdnyBlok("");
     } else {
       const existujuca = (dispo || {})[datum];
-      setBlok({
+      novy = {
         datum,
         miesto: existujuca?.miesto || "",
         pocasie: existujuca?.pocasie || "",
@@ -61,11 +65,15 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
         skupiny: existujuca?.skupiny || [],
         zvyraznene: existujuca?.zvyraznene || [],
         dalsiPrijemcovia: (existujuca?.dalsiPrijemcovia || []).join(", "),
-      });
+      };
     }
+    setBlok(novy);
+    setNacitanyBlok(novy);
     setNahlad(null);
     setOdoslane(null);
   }
+
+  const zmenene = JSON.stringify(blok) !== JSON.stringify(nacitanyBlok);
 
   const patch = (p) => { setBlok((b) => ({ ...b, ...p })); setNahlad(null); setOdoslane(null); };
 
@@ -119,6 +127,11 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
     onUloz(datum, zostavBlok());
   };
 
+  const handleZavriet = () => {
+    if (zmenene && !confirm("Zavrieť? Zahodí to rozostavané dispo, ktoré si ešte neuložil(a) do rozpisu.")) return;
+    onClose();
+  };
+
   const handleNahlad = async () => {
     setNahlad("nacitava");
     try {
@@ -145,7 +158,7 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Zostaviť dispo</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
       {!canEdit && (
