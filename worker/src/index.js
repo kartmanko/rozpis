@@ -330,7 +330,7 @@ function ocistiBunky(cells) {
 /* Kontakt smie mať iba tieto polia — rovnaký dôvod ako pri ocistiBunky vyššie.
    "interny" prepája na crewId (človek zo štábu); externí (Jimmy Jib, ShowService…)
    crewId nemajú, sú to iba meno + kontakt na napovedanie a mail. */
-function ocistiKontakty(arr) {
+export function ocistiKontakty(arr) {
   const out = [];
   for (const k of arr) {
     if (!k || typeof k !== "object") continue;
@@ -349,17 +349,30 @@ function ocistiKontakty(arr) {
       // kontaktoch s mailom; pozri synchronizujPouzivatelovZKontaktov v auth.js.
       rola: k.interny && ROLE_KEYS.includes(k.rola) ? k.rola : "",
     });
-    if (out.length >= MAX_KONTAKTOV) break;
   }
-  return out;
+  // Appka nové kontakty vždy pridáva na koniec zoznamu — pri strope preto
+  // zahodíme tie NAJSTARŠIE (na začiatku), nie ten, čo práve pribudol. Pôvodne
+  // sa orezávalo hneď pri prvom dosiahnutí stropu (break v cykle vyššie), čo
+  // zahadzovalo najnovšie položky vrátane tej, kvôli ktorej človek práve ukladal.
+  return out.length > MAX_KONTAKTOV ? out.slice(out.length - MAX_KONTAKTOV) : out;
 }
 
 /* Uzávierka mesiaca (sekcia 6 briefu) smie mať iba tieto polia — rovnaký dôvod
    ako pri ocistiBunky/ocistiKontakty vyššie. Číselné sumy sú v centoch (rovnaká
    jednotka ako zvyšok výpočtu peňazí, viď src/vykazy.js). Poradie a obsah
    existujúcich záznamov (okrem "zrusene") kontroluje uzavierkyValidna v auth.js —
-   toto tu je iba tvar jednej položky, nie kontrola nemennosti histórie. */
-function ocistiUzavierky(arr) {
+   toto tu je iba tvar jednej položky, nie kontrola nemennosti histórie.
+
+   Zámerne tu NEOREZÁVAME na MAX_UZAVIEROK: appka nové uzávierky vždy pridáva
+   na koniec zoznamu, takže orezanie zhora (ako kedysi cez `break` tu) by pri
+   dosiahnutí stropu ticho zahodilo práve tú uzávierku, kvôli ktorej človek
+   ukladal — a keďže zvyšok poľa by ostal identický, uzavierkyValidna v
+   handlePostData by to nerozoznala od žiadnej zmeny a vrátila by 200, akoby
+   sa uzávierka uložila. Orezanie zdola (zahodiť najstaršie) by zas narazilo
+   na tú istú kontrolu opačne — vždy by ju zhodilo ako pokus prepísať históriu.
+   Strop sa preto kontroluje samostatne v handlePostData, kde sa dá vrátiť
+   jasná chyba namiesto ticho stratenej alebo ticho odmietnutej uzávierky. */
+export function ocistiUzavierky(arr) {
   const out = [];
   for (const u of arr) {
     if (!u || typeof u !== "object") continue;
@@ -388,7 +401,6 @@ function ocistiUzavierky(arr) {
       vyplatene,
       zrusene: u.zrusene ? String(u.zrusene).slice(0, 40) : null,
     });
-    if (out.length >= MAX_UZAVIEROK) break;
   }
   return out;
 }
@@ -396,8 +408,15 @@ function ocistiUzavierky(arr) {
 /* Denné role (sekcia 4 finálneho briefu) smú mať iba tieto polia — rovnaký dôvod
    ako pri ocistiBunky/ocistiKontakty vyššie. Jeden deň = jeden záznam (kľúčované
    podľa "iso", nie zoznam udalostí ako pri uzávierkach) — druhé uloženie pre ten
-   istý deň jednoducho prepíše predchádzajúce priradenie, to je zámer. */
-function ocistiDenneRoly(arr) {
+   istý deň jednoducho prepíše predchádzajúce priradenie, to je zámer.
+
+   Appka pri úprave dňa, ktorý už záznam mal, ten starý zmaže a nový pridá na
+   koniec zoznamu (viď ulozDennuRolu v App.jsx) — zoznam je teda zoradený podľa
+   toho, kedy sa ktorý deň naposledy menil, nie podľa dátumu. Pri strope preto
+   nesmie ostať prvých MAX_DENNE_ROLY dní (to by pri opakovanej úprave tých
+   istých pár dní časom zahodilo úplne všetky ostatné) — necháva sa naposledy
+   dotknutých MAX_DENNE_ROLY dní. */
+export function ocistiDenneRoly(arr) {
   const podla = new Map();
   for (const d of arr) {
     if (!d || typeof d !== "object") continue;
@@ -406,8 +425,16 @@ function ocistiDenneRoly(arr) {
     const storyProduceri = [...new Set(
       (Array.isArray(d.storyProduceri) ? d.storyProduceri : []).map((c) => String(c).slice(0, 60)),
     )].slice(0, MAX_STORY_PRODUCENTOV_DNA);
+    // re-set namiesto set na existujúci kľúč, nech si aj pri duplicite v
+    // rovnakom poli zoznam poradia drží "naposledy dotknuté" na konci.
+    // re-set namiesto set na existujúci kľúč, nech si aj pri duplicite v
+    // rovnakom poli zoznam poradia drží "naposledy dotknuté" na konci.
+    podla.delete(iso);
     podla.set(iso, { iso, reziser: d.reziser ? String(d.reziser).slice(0, 60) : null, storyProduceri });
-    if (podla.size >= MAX_DENNE_ROLY) break;
+  }
+  if (podla.size > MAX_DENNE_ROLY) {
+    const isa = [...podla.keys()].slice(0, podla.size - MAX_DENNE_ROLY);
+    isa.forEach((iso) => podla.delete(iso));
   }
   return [...podla.values()];
 }
@@ -472,6 +499,16 @@ async function handlePostData(request, env) {
      checkStateChange, ktoré admina vyššie preskočí) a platí to aj pre admina. */
   if (!uzavierkyValidna(current.uzavierky, next.uzavierky)) {
     return json({ error: "Uzávierky sa nedajú prepísať ani zmazať, iba zrušiť (a to natrvalo)." }, 403, env);
+  }
+
+  /* Strop na počet uzávierok (MAX_UZAVIEROK) sa zámerne nerieši tichým orezaním
+     v ocistiUzavierky vyššie (viď komentár tam) — pri append-only histórii by
+     orezanie muselo buď potichu zahodiť práve uloženú uzávierku, alebo vyzerať
+     ako pokus prepísať históriu. Radšej jasná chyba, nech človek vie, že treba
+     zasiahnuť ručne (v tomto rozsahu ide prakticky vždy o chybu vstupu, nie o
+     bežné použitie — jedna sezóna reálne spraví rádovo desiatky záznamov). */
+  if (next.uzavierky.length > MAX_UZAVIEROK) {
+    return json({ error: `Uzávierok je už ${MAX_UZAVIEROK} — ďalšiu server neuloží, ozvi sa vývojárovi.` }, 413, env);
   }
 
   /* Nadčas v uzavretom mesiaci sa nedá zmeniť, kým sa uzávierka nezruší — rovnako
