@@ -274,6 +274,26 @@ async function writeState(env, state) {
   prepisKes(env, STATE_KEY, text); // čítanie nižšie v tej istej požiadavke už vidí nový stav
 }
 
+/* Cloudflare KV nemá compare-and-swap — "prečítaj, over verziu, zapíš" v
+   handlePostData nižšie preto nie je samo o sebe atomické. Bez poistky by dve
+   súbežné uloženia spracované TÝM ISTÝM izolátorom (bežné pri tomto rozsahu
+   premávky — Cloudflare izolátor typicky ostáva "teplý" a strieda viacero
+   požiadaviek za sebou) mohli obe prečítať tú istú verziu, obe ňou prejsť, a
+   druhý zápis by ticho prepísal prvý — presne to "server to ticho prepísal",
+   čomu sa má baseVersion/409 vyhýbať. Rad tu zoradí zápisy tohto izolátora za
+   sebou, nech sa to nestane. Naprieč RÔZNYMI izolátormi (napr. dve rôzne edge
+   lokality naraz) to garanciu nedáva — to by vyžadovalo Durable Object, čo je
+   zmena mimo rozsahu tejto opravy; toto zachytí prevažnú väčšinu prípadov. */
+let stavRad = Promise.resolve();
+function zaradDoRadu(uloha) {
+  const tento = stavRad.then(uloha, uloha);
+  stavRad = tento.then(
+    () => {},
+    () => {} // chyba jednej úlohy nesmie zablokovať rad pre ďalšie čakajúce
+  );
+  return tento;
+}
+
 async function handleGetData(request, env) {
   // Rozpis vidí iba prihlásený človek (Fáza 1: prístup povinný pre všetkých).
   const user = await getSessionUser(request, env);
@@ -450,6 +470,14 @@ async function handlePostData(request, env) {
     return json({ error: "Neplatné telo požiadavky." }, 400, env);
   }
 
+  /* Prečítanie aktuálneho stavu až po overenie verzie a zápis (readState ...
+     writeState nižšie) sa zaradí do radu (viď zaradDoRadu vyššie) — bez toho
+     by dve súbežné uloženia mohli obe vychádzať z tej istej verzie a druhé by
+     ticho prepísalo prvé, aj keď obe prešli kontrolou baseVersion. */
+  return zaradDoRadu(() => handlePostDataZamknute(body, user, env));
+}
+
+async function handlePostDataZamknute(body, user, env) {
   const current = await readState(env);
   const baseVersion = Number.isInteger(body.baseVersion) ? body.baseVersion : -1;
 
