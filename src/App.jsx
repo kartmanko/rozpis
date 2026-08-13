@@ -108,6 +108,13 @@ export default function App() {
     canEditCells || caps.crew || caps.nad || caps.pending || caps.users || caps.sadzby || caps.reporty || caps.denneRoly
   );
 
+  // čo smie prihlásený človek robiť s bunkou danej osoby: "full" | "off" | "none"
+  // (definované skoro, nech ho môžu použiť aj skoršie funkcie ako resolveHook/potvrdDispo)
+  const accessFor = useCallback(
+    (crewId) => cellAccess(me, crew.find((c) => c.id === crewId)),
+    [me, crew]
+  );
+
   /* --- téma appky: svetlý / tmavý / auto (podľa systému) --- */
   const [theme, setThemeState] = useState(() => {
     try { return localStorage.getItem(THEME_STORAGE_KEY) || "dark"; } catch { return "dark"; }
@@ -707,9 +714,11 @@ export default function App() {
       }));
     }
 
-    // 2. zmeny v obsadení — iba tie zaškrtnuté a iba tie, pri ktorých vieme, o koho ide
+    // 2. zmeny v obsadení — iba tie zaškrtnuté, iba tie, pri ktorých vieme, o koho
+    //    ide, a iba z vlastnej sekcie (ponuka "kto to je?" to už nemá ponúkať,
+    //    toto je poistka navyše — server by cudziu sekciu aj tak zamietol)
     const vybrane = Object.entries(volba?.zmeny || {})
-      .filter(([, z]) => z?.vybrane && z?.crewId)
+      .filter(([, z]) => z?.vybrane && z?.crewId && accessFor(z.crewId) !== "none")
       .map(([i, z]) => ({ ...(navrh.zmeny || [])[Number(i)], crewId: z.crewId }))
       .filter((z) => z && (z.smena || z.nemoze));
 
@@ -749,7 +758,7 @@ export default function App() {
         znacka: "dispo-" + datum,
       }).catch(() => { /* ticho — upozornenie je bonus, nie podmienka */ });
     }
-  }, [addLog, commitCells]);
+  }, [addLog, commitCells, accessFor]);
 
   /* Zostavenie dispo v appke (sekcia 2 briefu) — na rozdiel od potvrdDispo vyššie
      (ktoré preberá NÁVRH z mailu) tu si celý obsah vymýšľa človek priamo v appke.
@@ -806,6 +815,7 @@ export default function App() {
   /* --- potvrdenie/zahodenie nepriradenej správy z WhatsApp bridge --- */
   const resolveHook = useCallback(
     (entry, crewId) => {
+      if (crewId && accessFor(crewId) === "none") return; // cudzia sekcia — ponuka to už nemá ponúkať, poistka navyše
       if (crewId) {
         commitCells((prev) => {
           const out = { ...prev };
@@ -840,7 +850,7 @@ export default function App() {
       setPendingHookState((prev) => prev.filter((e) => e.id !== entry.id));
       setDirty(true);
     },
-    [crew, addLog, commitCells]
+    [crew, addLog, commitCells, accessFor]
   );
 
   /* --- hromadná úprava vybraných buniek --- */
@@ -987,12 +997,6 @@ export default function App() {
     }
     return out;
   };
-
-  // čo smie prihlásený človek robiť s bunkou danej osoby: "full" | "off" | "none"
-  const accessFor = useCallback(
-    (crewId) => cellAccess(me, crew.find((c) => c.id === crewId)),
-    [me, crew]
-  );
 
   /* Keď si člen štábu sám preklikne vlastnú bunku, musí to byť vidieť v Histórii.
      Admin sa o tom inak dozvie iba tak, že si náhodou všimne inú farbu — a to je
@@ -1546,6 +1550,7 @@ export default function App() {
           pendingDispo={pendingDispo}
           dispo={dispo}
           crew={crew}
+          dovolene={plnyPristupIds}
           canEdit={!!caps.pending}
           onPotvrd={potvrdDispo}
           onZahod={zahodDispo}
@@ -1560,10 +1565,10 @@ export default function App() {
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />
       )}
       {panel === "hook" && caps.pending && (
-        <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} onResolve={resolveHook} onClose={() => setPanel(null)} />
+        <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} dovolene={plnyPristupIds} onResolve={resolveHook} onClose={() => setPanel(null)} />
       )}
       {panel === "import" && caps.pending && (
-        <ImportPanel crew={crew} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} />
+        <ImportPanel crew={crew} dovolene={plnyPristupIds} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} />
       )}
       {panel === "tabulka" && caps.pending && (
         <TabulkaPanel crew={crew} cells={cells} dovolene={plnyPristupIds} onZapis={zapisTabulku} onClose={() => setPanel(null)} setStatus={setStatus} />

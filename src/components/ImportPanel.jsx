@@ -2,7 +2,7 @@ import { useState } from "react";
 import { guessCrew } from "../matching";
 import { parseScreenshot, ApiError } from "../api";
 
-export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, setStatus }) {
+export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, onClose, setStatus }) {
   const [month, setMonth] = useState(8);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState([]); // { sender, phone, text, unavailable[], noRestrictions, crewId }
@@ -20,8 +20,11 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
           mediaType: f.type || "image/png",
           month,
         });
+        // hádanie mena smie trafiť iba niekoho z vlastnej sekcie — inak by sa
+        // rovno predvyplnil niekto cudzí a "Zapísať do tabuľky" by to poslalo ďalej
+        const povoleny = crew.filter((c) => (dovolene || []).includes(c.id));
         (parsed.items || parsed || []).forEach((p) =>
-          found.push({ ...p, crewId: guessCrew(crew, p.sender, p.phone) })
+          found.push({ ...p, crewId: guessCrew(povoleny, p.sender, p.phone) })
         );
       }
       setRows((r) => [...r, ...found]);
@@ -39,7 +42,7 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
   const apply = () => {
     let applied = 0;
     rows.forEach((r) => {
-      if (!r.crewId) return;
+      if (!r.crewId || !(dovolene || []).includes(r.crewId)) return;
       // zapamätaj si alias, nech sa appka nabudúce nepýta
       setCrew((cr) =>
         cr.map((c) => {
@@ -119,7 +122,9 @@ export default function ImportPanel({ crew, setCrew, setCell, addLog, onClose, s
                 className={`px-2 py-1 rounded-lg text-sm border ${r.crewId ? "bg-f-panel2 border-f-border text-f-text" : "bg-f-r/20 border-f-r text-f-r"}`}
               >
                 <option value="">— kto to je? —</option>
-                {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {/* iba ľudia z vlastnej sekcie — server by zápis do cudzej aj tak
+                    zamietol, ale ticho by odvtedy blokoval každé ďalšie uloženie */}
+                {crew.filter((c) => (dovolene || []).includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <button onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-f-faint text-sm px-2">Preskočiť</button>
             </div>

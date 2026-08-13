@@ -28,7 +28,7 @@ function popisZmeny(z) {
   return "neurčité";
 }
 
-export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvrd, onZahod, onZrusPotvrdene, onClose }) {
+export default function DispoPanel({ pendingDispo, dispo, crew, dovolene, canEdit, onPotvrd, onZahod, onZrusPotvrdene, onClose }) {
   const fronta = pendingDispo || [];
   const [otvoreny, setOtvoreny] = useState(fronta[0]?.id || null);
   // id návrhu -> { datum, harmonogram: bool, zmeny: { index: crewId|"" }, vybrane: Set-like objekt }
@@ -201,7 +201,10 @@ export default function DispoPanel({ pendingDispo, dispo, crew, canEdit, onPotvr
                                   className="ml-auto bg-f-panel2 border border-f-border rounded-md px-1.5 py-1 text-[11px] text-f-text"
                                 >
                                   <option value="">kto to je?</option>
-                                  {(crew || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                  {/* iba ľudia z vlastnej sekcie — server by potvrdenie do
+                                      cudzej sekcie aj tak zamietol, ale ticho by odvtedy
+                                      blokoval každé ďalšie uloženie */}
+                                  {(crew || []).filter((c) => (dovolene || []).includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                               )}
                             </div>

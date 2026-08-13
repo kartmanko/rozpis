@@ -1,4 +1,4 @@
-export default function WhatsAppQueuePanel({ pendingHook, crew, onResolve, onClose }) {
+export default function WhatsAppQueuePanel({ pendingHook, crew, dovolene, onResolve, onClose }) {
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -41,7 +41,9 @@ export default function WhatsAppQueuePanel({ pendingHook, crew, onResolve, onClo
               className="px-2 py-1 rounded-lg text-sm border bg-f-r/20 border-f-r text-f-r"
             >
               <option value="">— kto to je? —</option>
-              {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {/* iba ľudia z vlastnej sekcie — server by zápis do cudzej aj tak
+                  zamietol, ale ticho by odvtedy blokoval každé ďalšie uloženie */}
+              {crew.filter((c) => (dovolene || []).includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button onClick={() => onResolve(r, null)} className="text-f-faint text-sm px-2">Zahodiť</button>
           </div>
