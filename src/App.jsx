@@ -492,7 +492,7 @@ export default function App() {
             setUzavierkyState(s.uzavierky || []);
             setDenneRolyState(s.denneRoly || []);
             setPendingHookState(s.pendingHook || []);
-            commitZlucenieCells(zlucene.cells);
+            commitZlucenieCells(zlucene.cells, odoslane.cells);
             setLog(zlucene.log);
             setVersion(s.version);
             zakladRef.current = {
@@ -575,9 +575,27 @@ export default function App() {
      nastaví, appka by ho o chvíľu sama znova uložila, tentoraz BEZ konfliktu
      (baseVersion už sedí), a ticho by tak prepísala tú práve zlúčenú cudziu
      zmenu. Zlúčenie preto radšej založí nový "čistý štart" — zásobníky krokov
-     späť/znova sa vyprázdnia, nech Ctrl+Z cez zlúčenie neprekĺzne. */
-  const commitZlucenieCells = useCallback((cells) => {
-    setCells(cells);
+     späť/znova sa vyprázdnia, nech Ctrl+Z cez zlúčenie neprekĺzne.
+
+     "zakladPreZlucenie" je stav buniek, z ktorého zlúčenie vychádzalo (to, čo
+     bolo naposledy odoslané na server). Kým bolo uloženie na ceste k serveru
+     (a späť so 409-kou), človek mohol v appke ďalej klikať — tie bunky sú v
+     živom "cells" stave, ale zlúčenie o nich nevie. Bez tejto poistky by ich
+     blind "setCells(cells)" ticho zahodil. Preto sa tesne pred zápisom ešte
+     raz porovná živý stav so "zakladPreZlucenie" a čokoľvek, čo sa odvtedy
+     zmenilo, sa navrch zlúčeného výsledku dopíše. */
+  const commitZlucenieCells = useCallback((cells, zakladPreZlucenie) => {
+    setCells((prevZive) => {
+      if (!zakladPreZlucenie) return cells;
+      const noveZmeny = zmeneneKluce(zakladPreZlucenie, prevZive);
+      if (!noveZmeny.length) return cells;
+      const out = { ...cells };
+      for (const k of noveZmeny) {
+        if (prevZive[k] === undefined) delete out[k];
+        else out[k] = prevZive[k];
+      }
+      return out;
+    });
     undoStackRef.current = [];
     redoStackRef.current = [];
     setHistoryVersion((v) => v + 1);
@@ -1290,8 +1308,10 @@ export default function App() {
       return;
     }
     // rovnaký dôvod ako pri automatickom zlúčení pri strete (viď commitZlucenieCells) —
-    // krok späť nesmie vedieť skočiť spred tohto zlúčenia.
-    commitZlucenieCells(zlucene.cells);
+    // krok späť nesmie vedieť skočiť spred tohto zlúčenia. "teraz.cells" je tu
+    // navyše aj poistkou pre commitZlucenieCells (nič nemení, tento krok je
+    // synchrónny — ale nech sú obe volania rovnako opatrné).
+    commitZlucenieCells(zlucene.cells, teraz.cells);
     setLog(zlucene.log);
     setDirty(true);
     setOdlozene(null);
