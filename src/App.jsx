@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
 import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, REFRESH_PO_NAVRATE_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
-import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam } from "./api";
+import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam, setBreakGlassPassword } from "./api";
 import { capsOf, sectionsOf, cellAccess, DEMO_USER } from "./permissions";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
@@ -263,6 +263,11 @@ export default function App() {
 
   const handleLogout = async () => {
     try { await authLogout(); } catch { /* ticho */ }
+    // Núdzové heslo (X-Admin-Password) sa posiela pri KAŽDOM volaní a server ho
+    // berie prednostne pred cookie (viď getSessionUser) — bez tohto by "Odhlásiť
+    // sa" po núdzovom vstupe naďalej tíško prihlasovalo ako plný admin, hoci
+    // appka vyzerá odhlásená (napr. na zdieľanom počítači po odovzdaní zmeny).
+    setBreakGlassPassword("");
     window.location.reload();
   };
 
