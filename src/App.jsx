@@ -499,7 +499,10 @@ export default function App() {
             setUzavierkyState((prevZive) => (rovnake(prevZive, odoslane.uzavierky) ? (s.uzavierky || []) : prevZive));
             setDenneRolyState((prevZive) => (rovnake(prevZive, odoslane.denneRoly) ? (s.denneRoly || []) : prevZive));
             setPendingHookState((prevZive) => (rovnake(prevZive, odoslane.pendingHook) ? (s.pendingHook || []) : prevZive));
-            commitZlucenieCells(zlucene.cells, odoslane.cells);
+            // kľúče, ktoré medzitým zmenil TEN CUDZÍ zápis — viď komentár pri
+            // commitZlucenieCells, prečo sa na nich živý klik neaplikuje.
+            const cudzieZmenyBuniek = new Set(zmeneneKluce(zakladRef.current.cells, s.cells));
+            commitZlucenieCells(zlucene.cells, odoslane.cells, cudzieZmenyBuniek);
             setLog(zlucene.log);
             setVersion(s.version);
             zakladRef.current = {
@@ -590,14 +593,23 @@ export default function App() {
      živom "cells" stave, ale zlúčenie o nich nevie. Bez tejto poistky by ich
      blind "setCells(cells)" ticho zahodil. Preto sa tesne pred zápisom ešte
      raz porovná živý stav so "zakladPreZlucenie" a čokoľvek, čo sa odvtedy
-     zmenilo, sa navrch zlúčeného výsledku dopíše. */
-  const commitZlucenieCells = useCallback((cells, zakladPreZlucenie) => {
+     zmenilo, sa navrch zlúčeného výsledku dopíše.
+
+     "cudzieZmeny" (voliteľné) sú kľúče, ktoré medzitým zmenil TEN CUDZÍ zápis
+     (server oproti pôvodnému základu) — bez tejto druhej poistky by práve na
+     TÝCHTO kľúčoch mohol živý klik (naklikaný v tom istom úzkom okne, kedy
+     zlúčenie ešte nevedelo, že sa server v tejto bunke medzitým zmenil) ticho
+     prepísať cudziu, už potvrdenú zmenu — presne to, čomu má celé zlučovanie
+     zabrániť. Na takýchto kľúčoch sa preto živý klik NEAPLIKUJE (radšej nech
+     človek klik zopakuje, než aby zmizla cudzia potvrdená zmena bez varovania). */
+  const commitZlucenieCells = useCallback((cells, zakladPreZlucenie, cudzieZmeny) => {
     setCells((prevZive) => {
       if (!zakladPreZlucenie) return cells;
       const noveZmeny = zmeneneKluce(zakladPreZlucenie, prevZive);
       if (!noveZmeny.length) return cells;
       const out = { ...cells };
       for (const k of noveZmeny) {
+        if (cudzieZmeny && cudzieZmeny.has(k)) continue;
         if (prevZive[k] === undefined) delete out[k];
         else out[k] = prevZive[k];
       }
