@@ -181,12 +181,28 @@ export default function App() {
     [days, vykazMesiac]
   );
 
-  /* --- automatická kontrola novej verzie appky (na otvorenie, návrat do popredia, aj periodicky) --- */
+  /* --- automatická kontrola novej verzie appky (na otvorenie, návrat do popredia, aj periodicky) ---
+     Bez poistky nižšie by window.location.reload() (na rozdiel od load(), ktoré
+     iba prepíše React stav) zmazalo úplne všetko v pamäti prehliadača —
+     rozostavaný dispo v builderi, rozobratý screenshot v Import paneli,
+     nenahraté priradenie stĺpcov v Import tabuľky… a spustilo by sa to samo,
+     bez kliknutia, kedykoľvek príde nový build (kontrola beží periodicky aj pri
+     každom návrate na kartu). Rovnaká poistka ako pri tlačidle "Obnoviť" —
+     iba tu musí ísť cez ref, lebo check() beží v efekte s prázdnym poľom
+     závislostí (nech sa interval/listener nezakladá nanovo pri každom rendri),
+     takže "dirty"/"canSaveAnything" priamo v uzávere by boli navždy tie z prvého
+     vykreslenia. */
+  const bezpecneReloadovatRef = useRef(true);
+  useEffect(() => {
+    bezpecneReloadovatRef.current = !dirty || !canSaveAnything;
+  }, [dirty, canSaveAnything]);
+
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
       const latest = await fetchLatestBuildId();
       if (!cancelled && latest && latest !== BUILD_ID) {
+        if (!bezpecneReloadovatRef.current) return; // neuložená zmena — skús to pri ďalšej kontrole
         // service workerovi ešte povieme, nech zahodí starú kešu a prepne sa na
         // nový build — inak by po obnovení mohol podstrčiť starú stránku
         await pripravAktualizaciu();
@@ -269,6 +285,10 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
+    // Rovnaká poistka ako pri tlačidle "Obnoviť" — aj odhlásenie ide cez
+    // window.location.reload(), takže by inak vedelo ticho zahodiť neuloženú
+    // zmenu (napr. omylom kliknuté v Admin paneli s rozostavanou úpravou).
+    if (dirty && canSaveAnything && !confirm("Odhlásiť sa? Zahodí to tvoje ešte neuložené zmeny.")) return;
     try { await authLogout(); } catch { /* ticho */ }
     // Núdzové heslo (X-Admin-Password) sa posiela pri KAŽDOM volaní a server ho
     // berie prednostne pred cookie (viď getSessionUser) — bez tohto by "Odhlásiť
