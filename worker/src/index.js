@@ -57,7 +57,7 @@ import {
   posliMail,
 } from "./auth.js";
 import { vapidKluce, ulozOdber, zmazOdber, posliVsetkym } from "./push.js";
-import { sKesou, kesovane, prepisKes } from "./kes.js";
+import { sKesou, kesovane, prepisKes, zabudniKes } from "./kes.js";
 
 const STATE_KEY = "state_v1";
 
@@ -941,8 +941,22 @@ async function handlePostHook(request, env) {
   }
 
   if (Object.keys(mutacie).length || logRiadky.length) {
-    const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...state.log].slice(0, 400);
-    const next = { ...state, ...mutacie, log, version: state.version + 1 };
+    /* Medzi čítaním na začiatku tejto dávky a zápisom tu mohlo prejsť aj
+       desiatky sekúnd (LLM volanie na každú správu v dávke) — počas toho
+       mohol niekto z appky bežne uložiť /data (napr. zmenu v štábe, sadzbách,
+       kontaktoch...). Zápis tu by inak vzal PÔVODNÝ (zastaraný) "state" ako
+       základ a takú súbežnú zmenu by ticho prepísal späť na starú hodnotu —
+       presne to "appka to ticho prepísala", čomu sa tento projekt vyhýba.
+       Preto sa tesne pred zápisom číta znova (rovnaký dôvod ako druhé čítanie
+       v spracujDispoMail nižšie) a mutácie z tejto dávky sa poskladajú na
+       ČERSTVÝ stav, nie na ten spred LLM volaní. zabudniKes je nutný — bez
+       neho by readState vrátil z medzipamäte TEJTO ISTEJ požiadavky presne
+       to isté (zastaraný) čítanie ako na začiatku, akoby sa v KV odvtedy nič
+       nezmenilo. */
+    zabudniKes(env, STATE_KEY);
+    const cerstvyStav = await readState(env);
+    const log = [...logRiadky.map((text) => ({ t: new Date().toISOString(), text })).reverse(), ...cerstvyStav.log].slice(0, 400);
+    const next = { ...cerstvyStav, ...mutacie, log, version: cerstvyStav.version + 1 };
     await writeState(env, next);
     // dávka s jednou správou dostane rovnakú odpoveď ako predtým (bridge na to spolieha v logoch)
     if (!Array.isArray(body.messages)) return json({ ...vysledky[0], version: next.version }, chyba502 ? 502 : 200, env);
@@ -1316,6 +1330,13 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
     }
   }
 
+  // čítanie ešte raz, tesne pred zápisom — medzi state0 vyššie a týmto miestom
+  // mohlo LLM volanie zabrať aj sekundy, počas ktorých mohol niekto iný bežne
+  // uložiť appku. zabudniKes je nutný: bez neho by readState vrátil z
+  // medzipamäte TEJTO ISTEJ požiadavky presne to isté (zastarané) čítanie ako
+  // state0, akoby sa v KV odvtedy nič nezmenilo, a táto poistka by nič
+  // nechránila.
+  zabudniKes(env, STATE_KEY);
   const state = await readState(env);
   const id = "dsp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
   const navrh = {

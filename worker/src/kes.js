@@ -33,3 +33,16 @@ export function prepisKes(env, kluc, hodnota) {
   const kes = env && env.__kes;
   if (kes) kes.set(kluc, Promise.resolve(hodnota));
 }
+
+/** Zabudni kľúč z pamäte tejto požiadavky, aby ďalšie `kesovane()` volanie
+    naň išlo naozaj znova do KV — nie do vlastnej medzipamäte tejto istej
+    požiadavky. Bez tohto by "čítanie tesne pred zápisom" (napr. v
+    spracujDispoMail alebo handlePostHook, po dlhšom LLM volaní) v skutočnosti
+    vrátilo ten istý (možno už zastaraný) stav ako úplne prvé čítanie na
+    začiatku tej istej požiadavky — súbežný zápis niekoho iného z appky medzi
+    tým by sa tak stále dal ticho prepísať, presne tomu sa mala táto poistka
+    vyhnúť. */
+export function zabudniKes(env, kluc) {
+  const kes = env && env.__kes;
+  if (kes) kes.delete(kluc);
+}
