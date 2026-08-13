@@ -61,7 +61,7 @@ function NadcasRiadok({ cell, sadzba, onSet }) {
 }
 
 // access: "full" = celá bunka, "off" = iba prepínač "nemôžem" + nadčas (vlastný stĺpec člena štábu)
-export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, skDate, access = "full", sadzba }) {
+export default function CellEditor({ sel, crew, dovolene = [], cell, onSet, onSwap, onClose, skDate, access = "full", sadzba }) {
   const person = crew.find((c) => c.id === sel.crewId);
   const allowDuel = (person?.role || "kamera") === "kamera";
 
@@ -120,7 +120,12 @@ export default function CellEditor({ sel, crew, cell, onSet, onSwap, onClose, sk
           className="px-2 py-1.5 rounded-lg bg-f-panel2 text-sm border border-f-border text-f-text"
         >
           <option value="">Vymeniť s…</option>
-          {crew.filter((c) => c.id !== sel.crewId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {/* Iba ľudia z vlastnej sekcie (dovolene = plný prístup) — server by
+              výmenu do cudzej sekcie aj tak zamietol, ale bez tohto filtra by
+              sa neplatná zmena zapísala lokálne a odvtedy by ticho blokovala
+              úplne každé ďalšie ukladanie (aj tie neškodné), kým si to človek
+              nevšimne a neobnoví appku. */}
+          {crew.filter((c) => c.id !== sel.crewId && dovolene.includes(c.id)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
       {sadzba && <NadcasRiadok cell={cell} sadzba={sadzba} onSet={onSet} />}

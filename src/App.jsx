@@ -1632,6 +1632,7 @@ export default function App() {
         <CellEditor
           sel={sel}
           crew={crew}
+          dovolene={plnyPristupIds}
           cell={cellOf(sel.iso, sel.crewId)}
           skDate={skDate}
           access={accessFor(sel.crewId)}
