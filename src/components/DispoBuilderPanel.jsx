@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toUTC } from "../dateUtils";
 import { SK_DAYS_FULL } from "../constants";
 import { dispoOdoslatNahlad, dispoOdoslat, ApiError } from "../api";
@@ -38,24 +38,34 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
   const [blok, setBlok] = useState(prazdnyBlok(""));
   const [nahlad, setNahlad] = useState(null); // null | "nacitava" | {subject, html, text, prijemcovia} | { chyba }
   const [odoslane, setOdoslane] = useState(null); // null | "posiela" | { ok:true, poslaneNa } | { chyba }
+  const [nacitanyDatum, setNacitanyDatum] = useState(datum);
 
-  // pri zmene dňa sa predvyplní z už existujúcej (rozostavanej alebo potvrdenej) dispo na ten deň
-  useEffect(() => {
-    if (!datum) { setBlok(prazdnyBlok("")); return; }
-    const existujuca = (dispo || {})[datum];
-    setBlok({
-      datum,
-      miesto: existujuca?.miesto || "",
-      pocasie: existujuca?.pocasie || "",
-      poznamky: existujuca?.poznamky || "",
-      harmonogram: existujuca?.harmonogram || [],
-      skupiny: existujuca?.skupiny || [],
-      zvyraznene: existujuca?.zvyraznene || [],
-      dalsiPrijemcovia: (existujuca?.dalsiPrijemcovia || []).join(", "),
-    });
+  /* Pri zmene dňa sa predvyplní z už existujúcej (rozostavanej alebo potvrdenej)
+     dispo na ten deň — robí sa to takto (nie useEffect nad [datum, dispo]), nech
+     rozostavaný blok neresetuje aj obyčajná zmena "dispo" propu, ktorá s
+     vybraným dňom vôbec nesúvisí (napr. periodické obnovenie na pozadí každých
+     REFRESH_INTERVAL_MS — skladanie dispo dlhšie ako to appka ticho nezmaže).
+     Rovnaký dôvod a rovnaký vzor ako v DenneRolyPanel. */
+  if (nacitanyDatum !== datum) {
+    setNacitanyDatum(datum);
+    if (!datum) {
+      setBlok(prazdnyBlok(""));
+    } else {
+      const existujuca = (dispo || {})[datum];
+      setBlok({
+        datum,
+        miesto: existujuca?.miesto || "",
+        pocasie: existujuca?.pocasie || "",
+        poznamky: existujuca?.poznamky || "",
+        harmonogram: existujuca?.harmonogram || [],
+        skupiny: existujuca?.skupiny || [],
+        zvyraznene: existujuca?.zvyraznene || [],
+        dalsiPrijemcovia: (existujuca?.dalsiPrijemcovia || []).join(", "),
+      });
+    }
     setNahlad(null);
     setOdoslane(null);
-  }, [datum, dispo]);
+  }
 
   const patch = (p) => { setBlok((b) => ({ ...b, ...p })); setNahlad(null); setOdoslane(null); };
 
