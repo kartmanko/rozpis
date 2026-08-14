@@ -5,7 +5,7 @@ import { kontrolaPristupov } from "../kontrolaPristupov";
 
 /* Správa prístupov — kto sa smie prihlásiť, akú má rolu a ku ktorému človeku
    v rozpise patrí. Vidí to iba hlavný admin. */
-export default function UsersPanel({ crew, onClose }) {
+export default function UsersPanel({ crew, onClose, onRegisterCloseGuard }) {
   const [users, setUsers] = useState([]);
   // snímka toho, čo je naposledy naisto uložené na serveri (alebo práve načítané) —
   // porovnaním s "users" sa dá zistiť, či "Zavrieť" práve teraz zahadzuje niečo neuložené.
@@ -91,6 +91,15 @@ export default function UsersPanel({ crew, onClose }) {
     if (zmenene && !confirm("Zavrieť? Zahodí to zmeny v prístupoch, ktoré si ešte neuložil(a).")) return;
     onClose();
   };
+
+  // Zaregistruje sa u rodiča (App.jsx), aby aj Escape a prepnutie na iný panel
+  // z menu (obe volajú setPanel(...) priamo, nie handleZavriet vyššie) rešpektovali
+  // rovnakú otázku pred zahodením neuloženej zmeny — viď komentár v App.jsx.
+  useEffect(() => {
+    if (!onRegisterCloseGuard) return;
+    onRegisterCloseGuard(() => !zmenene || confirm("Zavrieť? Zahodí to zmeny v prístupoch, ktoré si ešte neuložil(a)."));
+    return () => onRegisterCloseGuard(null);
+  }, [zmenene, onRegisterCloseGuard]);
 
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">

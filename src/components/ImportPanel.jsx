@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { guessCrew } from "../matching";
 import { parseScreenshot, ApiError } from "../api";
 
-export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, onClose, setStatus }) {
+export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, onClose, setStatus, onRegisterCloseGuard }) {
   const [month, setMonth] = useState(8);
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState([]); // { sender, phone, text, unavailable[], noRestrictions, crewId }
@@ -73,6 +73,22 @@ export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, 
 
   const unresolved = rows.filter((r) => !r.crewId).length;
 
+  const handleZavriet = () => {
+    if (rows.length && !confirm("Zavrieť? Zahodí to rozpoznané screenshoty, ktoré si ešte nezapísal(a) do rozpisu.")) return;
+    onClose();
+  };
+
+  // rozpoznané, ale ešte NEzapísané screenshoty ("rows") sú rozostavaná práca,
+  // za ktorú sa platí (Vision API) — bez tejto registrácie by Escape aj
+  // prepnutie na iný panel z menu vedeli celý rozpoznaný dávku ticho zahodiť
+  // (na rozdiel od tlačidla "Zavrieť" tento panel doteraz vôbec nemal žiadnu
+  // poistku, viď komentár v App.jsx pri registerPanelCloseGuard).
+  useEffect(() => {
+    if (!onRegisterCloseGuard) return;
+    onRegisterCloseGuard(() => rows.length === 0 || confirm("Zavrieť? Zahodí to rozpoznané screenshoty, ktoré si ešte nezapísal(a) do rozpisu."));
+    return () => onRegisterCloseGuard(null);
+  }, [rows, onRegisterCloseGuard]);
+
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center gap-2 mb-2.5 flex-wrap">
@@ -86,7 +102,7 @@ export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, 
             <option value={10}>Október</option>
           </select>
         </label>
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
       <input type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && analyze(e.target.files)} className="text-sm text-f-muted" />

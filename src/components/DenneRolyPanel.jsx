@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { skDate } from "../dateUtils";
 
 /* Denné role (sekcia 4 finálneho briefu).
@@ -10,7 +10,7 @@ import { skDate } from "../dateUtils";
    predchádzajúce priradenie prepíše, presné to isté pravidlo drží aj server
    (ocistiDenneRoly vo worker/src/index.js). */
 
-export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz, onClose }) {
+export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz, onClose, onRegisterCloseGuard }) {
   const [vybranyIso, setVybranyIso] = useState(days[0]?.iso || "");
 
   const zaznam = useMemo(
@@ -49,6 +49,15 @@ export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz,
     if (zmenene && !confirm("Zavrieť? Zahodí to zmenu, ktorú si ešte neuložil(a).")) return;
     onClose();
   };
+
+  // Viď zhodný komentár v UsersPanel.jsx — bez tejto registrácie by Escape aj
+  // prepnutie na iný panel z menu obišli otázku vyššie a rozostavanú zmenu
+  // ticho zahodili.
+  useEffect(() => {
+    if (!onRegisterCloseGuard) return;
+    onRegisterCloseGuard(() => !zmenene || confirm("Zavrieť? Zahodí to zmenu, ktorú si ešte neuložil(a)."));
+    return () => onRegisterCloseGuard(null);
+  }, [zmenene, onRegisterCloseGuard]);
 
   return (
     <div data-testid="denne-roly-panel" className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">

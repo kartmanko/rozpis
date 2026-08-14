@@ -1231,7 +1231,7 @@ export default function App() {
         if (sel) { setSel(null); return; }
         if (dayDetailIso) { setDayDetailIso(null); return; }
         if (menu) { setMenu(null); return; }
-        if (panel) { setPanel(null); return; }
+        if (panel) { if (smiemOpustitPanel()) setPanel(null); return; }
       }
 
       if (!bulkMode || !canEdit) return;
@@ -1357,7 +1357,25 @@ export default function App() {
     [cells]
   );
 
-  const togglePanel = (p) => { setPanel(panel === p ? null : p); setMenu(null); };
+  /* Niektoré panely (Prístupy, Denné role, Zostaviť dispo, Import screenshotov,
+     Import tabuľky) majú vlastný rozpracovaný koncept a pri kliku na ich vlastné
+     "Zavrieť" sa pýtajú, či sa nemá ticho zahodiť. To ale chránilo iba TOTO jedno
+     tlačidlo — Escape aj prepnutie na iný panel z menu volali setPanel(...) rovno,
+     takže rozpracovanú prácu vedeli zahodiť bez varovania. Otvorený panel si sem
+     zaregistruje "smiem ťa zavrieť?" funkciu (viď onRegisterCloseGuard v tých
+     paneloch) a Escape aj prepnutie panela sa jej opýtajú predtým, než panel zavrú. */
+  const panelCloseGuardRef = useRef(null);
+  const registerPanelCloseGuard = useCallback((fn) => { panelCloseGuardRef.current = fn; }, []);
+  const smiemOpustitPanel = () => {
+    const guard = panelCloseGuardRef.current;
+    return !guard || guard();
+  };
+
+  const togglePanel = (p) => {
+    if (panel && !smiemOpustitPanel()) return;
+    setPanel(panel === p ? null : p);
+    setMenu(null);
+  };
 
   /* --- kým nevieme, kto je prihlásený, appku nezobrazujeme (rozpis nemá vidieť nikto cudzí) --- */
   if (me === undefined) {
@@ -1558,7 +1576,7 @@ export default function App() {
       </header>
 
       {panel === "admin" && <AdminPanel me={me} onLogout={handleLogout} onClose={() => setPanel(null)} />}
-      {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} />}
+      {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} onRegisterCloseGuard={registerPanelCloseGuard} />}
       {panel === "kontakty" && caps.users && (
         <KontaktyPanel kontakty={kontakty} setKontakty={wrappedSetKontakty} crew={crew} onClose={() => setPanel(null)} />
       )}
@@ -1601,6 +1619,7 @@ export default function App() {
           canEdit={!!caps.denneRoly}
           onUloz={ulozDennuRolu}
           onClose={() => setPanel(null)}
+          onRegisterCloseGuard={registerPanelCloseGuard}
         />
       )}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
@@ -1629,7 +1648,7 @@ export default function App() {
         />
       )}
       {panel === "dispoBuilder" && caps.pending && (
-        <DispoBuilderPanel dispo={dispo} crew={crew} cellOf={cellOf} denneRoly={denneRoly} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} />
+        <DispoBuilderPanel dispo={dispo} crew={crew} cellOf={cellOf} denneRoly={denneRoly} canEdit={!!caps.pending} onUloz={ulozDispoBlok} onClose={() => setPanel(null)} onRegisterCloseGuard={registerPanelCloseGuard} />
       )}
       {panel === "chaty" && caps.pending && (
         <ChatyPanel chaty={chaty} canEdit={!!caps.pending} onSetChat={setChat} onReload={load} onClose={() => setPanel(null)} />
@@ -1638,10 +1657,10 @@ export default function App() {
         <WhatsAppQueuePanel pendingHook={pendingHook} crew={crew} dovolene={plnyPristupIds} onResolve={resolveHook} onClose={() => setPanel(null)} />
       )}
       {panel === "import" && caps.pending && (
-        <ImportPanel crew={crew} dovolene={plnyPristupIds} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} />
+        <ImportPanel crew={crew} dovolene={plnyPristupIds} setCrew={wrappedSetCrew} setCell={setCell} addLog={addLog} onClose={() => setPanel(null)} setStatus={setStatus} onRegisterCloseGuard={registerPanelCloseGuard} />
       )}
       {panel === "tabulka" && caps.pending && (
-        <TabulkaPanel crew={crew} cells={cells} dovolene={plnyPristupIds} onZapis={zapisTabulku} onClose={() => setPanel(null)} setStatus={setStatus} />
+        <TabulkaPanel crew={crew} cells={cells} dovolene={plnyPristupIds} onZapis={zapisTabulku} onClose={() => setPanel(null)} setStatus={setStatus} onRegisterCloseGuard={registerPanelCloseGuard} />
       )}
 
       {bulkMode && canEditAll && (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toUTC } from "../dateUtils";
 import { SK_DAYS_FULL } from "../constants";
 import { dispoOdoslatNahlad, dispoOdoslat, ApiError } from "../api";
@@ -33,7 +33,7 @@ const prazdnyBlok = (datum) => ({
   dalsiPrijemcovia: "",
 });
 
-export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canEdit, onUloz, onClose }) {
+export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canEdit, onUloz, onClose, onRegisterCloseGuard }) {
   const [datum, setDatum] = useState("");
   const [blok, setBlok] = useState(prazdnyBlok(""));
   const [nahlad, setNahlad] = useState(null); // null | "nacitava" | {subject, html, text, prijemcovia} | { chyba }
@@ -131,6 +131,15 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
     if (zmenene && !confirm("Zavrieť? Zahodí to rozostavané dispo, ktoré si ešte neuložil(a) do rozpisu.")) return;
     onClose();
   };
+
+  // Viď zhodný komentár v UsersPanel.jsx — bez tejto registrácie by Escape aj
+  // prepnutie na iný panel z menu obišli otázku vyššie a rozostavané dispo
+  // ticho zahodili.
+  useEffect(() => {
+    if (!onRegisterCloseGuard) return;
+    onRegisterCloseGuard(() => !zmenene || confirm("Zavrieť? Zahodí to rozostavané dispo, ktoré si ešte neuložil(a) do rozpisu."));
+    return () => onRegisterCloseGuard(null);
+  }, [zmenene, onRegisterCloseGuard]);
 
   const handleNahlad = async () => {
     setNahlad("nacitava");

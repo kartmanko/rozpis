@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { analyzujTabulku, zostavNavrh, popisBunky } from "../tabulkaImport";
 import { skDate } from "../dateUtils";
@@ -13,7 +13,7 @@ import { skDate } from "../dateUtils";
    Prázdna bunka v súbore nikdy nič nezmaže a už vyplnená bunka v appke sa
    prepíše iba vtedy, keď sa dole zapne „prepisovať aj vyplnené". */
 
-export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, setStatus }) {
+export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, setStatus, onRegisterCloseGuard }) {
   const [nazovSuboru, setNazovSuboru] = useState("");
   const [harky, setHarky] = useState([]); // { nazov, aoa }
   const [harok, setHarok] = useState(0);
@@ -96,12 +96,31 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
     onClose();
   };
 
+  // Načítaný súbor a jeho rozobraté priradenie stĺpcov ("harky") je rozostavaná
+  // práca — kým sa nezapíše, zavretím sa zahodí a treba súbor nahrať a priradiť
+  // znova. Pomenované inak než "zmenene" vyššie (to je pole navrhovaných zmien
+  // BUNIEK, nie príznak "má tento panel rozostavané niečo").
+  const maNaacitanySubor = harky.length > 0;
+
+  const handleZavriet = () => {
+    if (maNaacitanySubor && !confirm("Zavrieť? Zahodí to načítanú tabuľku, ktorú si ešte nezapísal(a) do rozpisu.")) return;
+    onClose();
+  };
+
+  // Viď zhodný komentár v UsersPanel.jsx — bez tejto registrácie by Escape aj
+  // prepnutie na iný panel z menu obišli otázku vyššie.
+  useEffect(() => {
+    if (!onRegisterCloseGuard) return;
+    onRegisterCloseGuard(() => !maNaacitanySubor || confirm("Zavrieť? Zahodí to načítanú tabuľku, ktorú si ešte nezapísal(a) do rozpisu."));
+    return () => onRegisterCloseGuard(null);
+  }, [maNaacitanySubor, onRegisterCloseGuard]);
+
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-3.5 no-print">
       <div className="flex items-center gap-2 mb-2.5 flex-wrap">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Import tabuľky (XLSX / CSV)</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
       </div>
 
       <input
