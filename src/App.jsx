@@ -33,7 +33,7 @@ import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
-import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby } from "./vykazy";
+import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby, mesiacUzavrety } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce, rovnake } from "./zlucenie";
 import { ulozNeulozene, nacitajNeulozene, zahodNeulozene } from "./neulozene";
@@ -918,14 +918,22 @@ export default function App() {
         const out = { ...prev };
         selectedKeys.forEach((k) => {
           const cur = out[k] || emptyCell;
-          const next = { ...cur, ...patch };
+          // Nadčas v uzavretom mesiaci sa lokálne nemení vôbec (napr. "Vyčistiť"
+          // aj Delete posielajú nadcas:0 spolu s ostatným) — server by ho aj tak
+          // odmietol (platí aj pre admina), ale bez tejto poistky by sa neplatná
+          // zmena zapísala lokálne a odvtedy by ticho blokovala úplne každé
+          // ďalšie uloženie. Viď rovnaký mechanizmus v CellEditor.jsx.
+          const p = patch.nadcas !== undefined && mesiacUzavrety(uzavierky, k.split("|")[0])
+            ? { ...patch, nadcas: cur.nadcas }
+            : patch;
+          const next = { ...cur, ...p };
           const empty = prazdnaBunka(next);
           if (empty) delete out[k]; else out[k] = next;
         });
         return out;
       }, `Hromadná úprava — ${selectedKeys.size} ${selectedKeys.size === 1 ? "bunka" : "buniek"}`);
     },
-    [selectedKeys, commitCells]
+    [selectedKeys, commitCells, uzavierky]
   );
 
   const wrappedSetCrew = useCallback((updater) => { setCrew(updater); setDirty(true); }, []);
@@ -1731,6 +1739,7 @@ export default function App() {
           skDate={skDate}
           access={accessFor(sel.crewId)}
           sadzba={sadzbaProfesie(sadzby, crew.find((c) => c.id === sel.crewId)?.role || "kamera")}
+          uzavierky={uzavierky}
           onSet={(patch) => setCell(sel.iso, sel.crewId, patch, popisVlastnejZmeny(sel.iso, sel.crewId, patch))}
           onSwap={(otherId) => { swap(sel.iso, sel.crewId, otherId); setSel(null); }}
           onClose={() => setSel(null)}

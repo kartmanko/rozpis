@@ -75,6 +75,18 @@ export function hodinovkaDnaC(cell, s) {
   return Math.round((zaklad * pct) / 100);
 }
 
+/** Je mesiac dátumu "iso" ("YYYY-MM-DD") práve teraz uzavretý — existuje preň
+    nezrušená uzávierka? Zrkadlí rovnomennú kontrolu na serveri
+    (worker/src/auth.js, nadcasVUzavretomMesiaci) — server nadčas v uzavretom
+    mesiaci aj tak odmietne (a to platí aj pre admina), ale bez tejto klientskej
+    poistky by sa neplatná zmena zapísala lokálne a odvtedy by ticho blokovala
+    úplne každé ďalšie uloženie (rovnaký mechanizmus ako pri "Vymeniť s…" do
+    cudzej sekcie, viď komentár v CellEditor.jsx), kým si to človek nevšimne. */
+export function mesiacUzavrety(uzavierky, iso) {
+  const mesiac = String(iso || "").slice(0, 7);
+  return (uzavierky || []).some((u) => u.mesiac === mesiac && !u.zrusene);
+}
+
 /** Slovný popis toho, za čo v ten deň peniaze sú. */
 export function popisDna(cell) {
   if (!cell || cell.off) return "nemôže";
