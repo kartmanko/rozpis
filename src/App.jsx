@@ -226,9 +226,21 @@ export default function App() {
   const cellOf = (iso, cid) => cells[key(iso, cid)] || emptyCell;
 
   /* --- späť/znova (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z alebo Ctrl+Y) — zásobník stavov "cells",
-     funguje pri akejkoľvek úprave (jedna bunka aj hromadná), nielen v režime výberu --- */
+     funguje pri akejkoľvek úprave (jedna bunka aj hromadná), nielen v režime výberu ---
+     "cellsRef" drží vždy aktuálne "cells" synchrónne, mimo Reactovho stavu. Bez neho by
+     commitCells/undoCells/redoCells museli čítať aj meniť undoStackRef/redoStackRef PRIAMO
+     vnútri funkcie odovzdanej do setCells(prev => ...) — a tú React v dev režime (StrictMode)
+     zámerne zavolá DVAKRÁT, aby odhalil práve takéto nečisté funkcie. Pri druhom zavolaní by
+     už čítala vlastný zásobník po prvom (skoršom) zásahu zvnútra prvého volania — pri jedinom
+     kroku v zásobníku by tak druhé volanie videlo prázdny zásobník a vrátilo by "undefined"
+     namiesto buniek (appka by pri Vrátiť späť spadla). Preto zásobníky menia iba funkcie
+     mimo setCells a do setCells ide vždy hotová hodnota, nie funkcia. */
   const undoStackRef = useRef([]);
   const redoStackRef = useRef([]);
+  const cellsRef = useRef(cells);
+  useEffect(() => {
+    cellsRef.current = cells;
+  }, [cells]);
   const [historyVersion, setHistoryVersion] = useState(0);
   const canUndo = undoStackRef.current.length > 0;
   const canRedo = redoStackRef.current.length > 0;
@@ -560,17 +572,22 @@ export default function App() {
     setDirty(true);
   }, []);
 
-  /* --- jediné miesto, cez ktoré sa upravuje "cells", nech sa každá zmena dá vrátiť späť (Ctrl/Cmd+Z) --- */
+  /* --- jediné miesto, cez ktoré sa upravuje "cells", nech sa každá zmena dá vrátiť späť (Ctrl/Cmd+Z) ---
+     Zásobník krokov si popri bunkách nesie aj "logMsg" danej zmeny (ak nejaký
+     bol) — bez toho by Vrátiť späť/Zopakovať vrátilo bunky, ale "História
+     zmien" by o tom mlčala. Riadok typu "Výmena..."/"Import tabuľky..." by
+     tak v histórii ostal ležať aj po vrátení späť a klamal by, že sa niečo
+     stalo, hoci stav bola bunky sa medzitým vrátil. */
   const commitCells = useCallback(
     (updater, logMsg) => {
-      setCells((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        if (next !== prev) {
-          undoStackRef.current = [...undoStackRef.current, prev].slice(-60);
-          redoStackRef.current = [];
-        }
-        return next;
-      });
+      const prev = cellsRef.current;
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next !== prev) {
+        undoStackRef.current = [...undoStackRef.current, { cells: prev, logMsg }].slice(-60);
+        redoStackRef.current = [];
+      }
+      cellsRef.current = next;
+      setCells(next);
       setDirty(true);
       if (logMsg) addLog(logMsg);
       setHistoryVersion((v) => v + 1);
@@ -603,18 +620,21 @@ export default function App() {
      zabrániť. Na takýchto kľúčoch sa preto živý klik NEAPLIKUJE (radšej nech
      človek klik zopakuje, než aby zmizla cudzia potvrdená zmena bez varovania). */
   const commitZlucenieCells = useCallback((cells, zakladPreZlucenie, cudzieZmeny) => {
-    setCells((prevZive) => {
-      if (!zakladPreZlucenie) return cells;
+    const prevZive = cellsRef.current;
+    let out = cells;
+    if (zakladPreZlucenie) {
       const noveZmeny = zmeneneKluce(zakladPreZlucenie, prevZive);
-      if (!noveZmeny.length) return cells;
-      const out = { ...cells };
-      for (const k of noveZmeny) {
-        if (cudzieZmeny && cudzieZmeny.has(k)) continue;
-        if (prevZive[k] === undefined) delete out[k];
-        else out[k] = prevZive[k];
+      if (noveZmeny.length) {
+        out = { ...cells };
+        for (const k of noveZmeny) {
+          if (cudzieZmeny && cudzieZmeny.has(k)) continue;
+          if (prevZive[k] === undefined) delete out[k];
+          else out[k] = prevZive[k];
+        }
       }
-      return out;
-    });
+    }
+    cellsRef.current = out;
+    setCells(out);
     undoStackRef.current = [];
     redoStackRef.current = [];
     setHistoryVersion((v) => v + 1);
@@ -622,31 +642,34 @@ export default function App() {
 
   const undoCells = useCallback(() => {
     if (!undoStackRef.current.length) return;
-    setCells((prev) => {
-      const stack = undoStackRef.current;
-      const target = stack[stack.length - 1];
-      undoStackRef.current = stack.slice(0, -1);
-      redoStackRef.current = [...redoStackRef.current, prev].slice(-60);
-      return target;
-    });
+    const stack = undoStackRef.current;
+    const entry = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current, { cells: cellsRef.current, logMsg: entry.logMsg }].slice(-60);
+    cellsRef.current = entry.cells;
+    setCells(entry.cells);
     setDirty(true);
     setStatus("Vrátené späť.");
+    // iba ak mal krok, čo sa vracia, aj vlastný riadok v histórii (nie každý
+    // klik tam má riadok) — nech sa história nezaplní zbytočnými "Vrátené"
+    // pre bežné jednotlivé kliky na bunku.
+    if (entry.logMsg) addLog(`Vrátené: ${entry.logMsg}`);
     setHistoryVersion((v) => v + 1);
-  }, []);
+  }, [addLog]);
 
   const redoCells = useCallback(() => {
     if (!redoStackRef.current.length) return;
-    setCells((prev) => {
-      const stack = redoStackRef.current;
-      const target = stack[stack.length - 1];
-      redoStackRef.current = stack.slice(0, -1);
-      undoStackRef.current = [...undoStackRef.current, prev].slice(-60);
-      return target;
-    });
+    const stack = redoStackRef.current;
+    const entry = stack[stack.length - 1];
+    redoStackRef.current = stack.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, { cells: cellsRef.current, logMsg: entry.logMsg }].slice(-60);
+    cellsRef.current = entry.cells;
+    setCells(entry.cells);
     setDirty(true);
     setStatus("Zopakované.");
+    if (entry.logMsg) addLog(`Zopakované: ${entry.logMsg}`);
     setHistoryVersion((v) => v + 1);
-  }, []);
+  }, [addLog]);
 
   const setCell = useCallback(
     (iso, cid, patch, logMsg) => {
@@ -1602,7 +1625,7 @@ export default function App() {
       {panel === "kontakty" && caps.users && (
         <KontaktyPanel kontakty={kontakty} setKontakty={wrappedSetKontakty} crew={crew} onClose={() => setPanel(null)} />
       )}
-      {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} onClose={() => setPanel(null)} />}
+      {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} addLog={addLog} onClose={() => setPanel(null)} />}
       {panel === "vykazy" && (
         <VykazyPanel
           crew={crew}
@@ -1619,7 +1642,7 @@ export default function App() {
         />
       )}
       {panel === "sadzby" && (
-        <SadzbyPanel sadzby={sadzby} canEdit={!!caps.sadzby} onSetSadzba={setSadzba} onClose={() => setPanel(null)} />
+        <SadzbyPanel sadzby={sadzby} canEdit={!!caps.sadzby} onSetSadzba={setSadzba} addLog={addLog} onClose={() => setPanel(null)} />
       )}
       {panel === "uzavierky" && caps.sadzby && (
         <UzavierkyPanel
