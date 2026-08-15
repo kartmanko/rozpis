@@ -204,6 +204,19 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                       if (bulkMode && canEdit) { onSelectRow && onSelectRow(d.iso, e); return; }
                       onDayClick && onDayClick(d.iso);
                     }}
+                    // Bez tabIndex/onKeyDown sa k tomuto riadku (a k celej tabuľke nižšie)
+                    // nedalo dostať iba klávesnicou — Tab preskočil rovno z hlavičky na
+                    // "DNES" a deň sa nedal otvoriť ani označiť bez myši/dotyku.
+                    tabIndex={onDayClick || bulkMode ? 0 : undefined}
+                    role={onDayClick || bulkMode ? "button" : undefined}
+                    aria-label={onDayClick || bulkMode ? `${d.day}.${d.month + 1}. ${d.dow}` : undefined}
+                    onKeyDown={(e) => {
+                      if (!(onDayClick || bulkMode)) return;
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      if (bulkMode && canEdit) { onSelectRow && onSelectRow(d.iso, e); return; }
+                      onDayClick && onDayClick(d.iso);
+                    }}
                     title={bulkMode && canEdit ? "Klik označí celý riadok (Shift/Ctrl = pridať k výberu)" : undefined}
                     className={`sticky left-0 z-10 border-b border-f-hair px-2 h-8 font-mono text-[11px] whitespace-nowrap ${onDayClick || bulkMode ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : "bg-f-bg"}`}
                   >
@@ -226,6 +239,20 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
                         data-cell-key={k}
                         onPointerDown={(e) => handleCellPointerDown({ iso: d.iso, crewId: c.id }, e)}
                         onClick={(e) => handleCellClick({ iso: d.iso, crewId: c.id }, e)}
+                        // Rovnaká poistka ako pri bunke "Deň" vyššie — bez tabIndex/onKeyDown sa
+                        // do tejto bunky (hlavná plocha na úpravu rozpisu) nedalo dostať iba
+                        // klávesnicou vôbec. Enter/Medzera otvoria to isté, čo bežný klik —
+                        // ťahanie/hromadný výber myšou/dotykom (onPointerDown vyššie) tým nie je
+                        // nahradené, iba jednoduché otvorenie editora bunky.
+                        tabIndex={canEdit ? 0 : undefined}
+                        role={canEdit ? "button" : undefined}
+                        aria-label={canEdit ? `${c.name}, ${d.day}.${d.month + 1}. ${d.dow}${x.off ? ", nemôže" : ""}${x.shift ? `, smena ${x.shift}` : ""}${x.duel ? ", Duel" : ""}` : undefined}
+                        onKeyDown={(e) => {
+                          if (!canEdit) return;
+                          if (e.key !== "Enter" && e.key !== " ") return;
+                          e.preventDefault();
+                          handleCellClick({ iso: d.iso, crewId: c.id }, e);
+                        }}
                         className={`relative border-b border-f-hair h-8 text-center select-none ${canEdit ? "cursor-pointer hover:brightness-125" : ""} ${isToday ? "bg-f-today" : ci.fifth ? "bg-f-fifthbg" : ""} ${bad ? "ring-2 ring-inset ring-red-500/70" : ""} ${selected ? "ring-2 ring-inset ring-f-accent bg-f-accent/10" : ""}`}
                       >
                         {selected && <span className="absolute top-0 right-0 text-[9px] leading-none bg-f-accent text-f-ink font-bold px-1 rounded-bl">✓</span>}
