@@ -323,6 +323,7 @@ const MAX_KONTAKT_POLE = 200; // dĺžka mena/funkcie/mailu/telefónu jedného k
 const MAX_UZAVIEROK = 300; // koľko uzávierkových udalostí si server pamätá (celá sezóna aj so zrušeniami)
 const MAX_VYPLATENYCH_POLOZIEK = 500; // koľko ľudí smie mať jedna uzávierka vo výplate (strop veľkosti štábu)
 const MAX_UZAVIERKA_POLE = 200; // dĺžka mena/e-mailu/profesie v jednej položke uzávierky
+const MAX_RIADKOV_VYPLATENIA = 120; // dní v podrobnom rozpise jedného človeka v jednej uzávierke, s rezervou nad dĺžku sezóny
 const MAX_DENNE_ROLY = 400; // jeden záznam na deň, s rezervou nad dĺžku sezóny
 const MAX_STORY_PRODUCENTOV_DNA = 20; // strop na počet Story producerov v jednom dni
 
@@ -392,6 +393,26 @@ export function ocistiKontakty(arr) {
    na tú istú kontrolu opačne — vždy by ju zhodilo ako pokus prepísať históriu.
    Strop sa preto kontroluje samostatne v handlePostData, kde sa dá vrátiť
    jasná chyba namiesto ticho stratenej alebo ticho odmietnutej uzávierky. */
+// Nezáporné celé číslo (počty smien/Duelov/dní v jednej položke vyplatenia).
+const nezaporneCele = (n) => (Number.isFinite(Number(n)) ? Math.max(0, Math.round(Number(n))) : 0);
+
+// Jeden deň v podrobnom rozpise jednej vyplatenej položky (VykazyPanel.jsx,
+// DetailDni) — rovnaký tvar, aký vracia vykazOsoby v src/vykazy.js.
+function ocistiRiadokVyplatenia(r) {
+  if (!r || typeof r !== "object") return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(String(r.iso || "")) ? r.iso : "";
+  if (!iso) return null;
+  return {
+    iso,
+    popis: String(r.popis || "").slice(0, 60),
+    hodiny: nezaporneCele(r.hodiny),
+    hodinyBezSmeny: nezaporneCele(r.hodinyBezSmeny),
+    zakladC: Number.isFinite(Number(r.zakladC)) ? Math.round(Number(r.zakladC)) : 0,
+    nadcasC: Number.isFinite(Number(r.nadcasC)) ? Math.round(Number(r.nadcasC)) : 0,
+    spoluC: Number.isFinite(Number(r.spoluC)) ? Math.round(Number(r.spoluC)) : 0,
+  };
+}
+
 export function ocistiUzavierky(arr) {
   const out = [];
   for (const u of arr) {
@@ -401,15 +422,33 @@ export function ocistiUzavierky(arr) {
     if (!mesiac || !ked) continue;
     const vyplatene = (Array.isArray(u.vyplatene) ? u.vyplatene : [])
       .slice(0, MAX_VYPLATENYCH_POLOZIEK)
-      .map((v) => ({
-        crewId: String(v?.crewId || "").slice(0, 60),
-        meno: String(v?.meno || "").slice(0, MAX_UZAVIERKA_POLE),
-        profesia: String(v?.profesia || "").slice(0, 40),
-        hodiny: Number.isFinite(Number(v?.hodiny)) ? Math.max(0, Number(v.hodiny)) : 0,
-        zakladC: Number.isFinite(Number(v?.zakladC)) ? Math.round(Number(v.zakladC)) : 0,
-        nadcasC: Number.isFinite(Number(v?.nadcasC)) ? Math.round(Number(v.nadcasC)) : 0,
-        spoluC: Number.isFinite(Number(v?.spoluC)) ? Math.round(Number(v.spoluC)) : 0,
-      }));
+      .map((v) => {
+        const zaklad = {
+          crewId: String(v?.crewId || "").slice(0, 60),
+          meno: String(v?.meno || "").slice(0, MAX_UZAVIERKA_POLE),
+          profesia: String(v?.profesia || "").slice(0, 40),
+          hodiny: Number.isFinite(Number(v?.hodiny)) ? Math.max(0, Number(v.hodiny)) : 0,
+          zakladC: Number.isFinite(Number(v?.zakladC)) ? Math.round(Number(v.zakladC)) : 0,
+          nadcasC: Number.isFinite(Number(v?.nadcasC)) ? Math.round(Number(v.nadcasC)) : 0,
+          spoluC: Number.isFinite(Number(v?.spoluC)) ? Math.round(Number(v.spoluC)) : 0,
+        };
+        // Podrobný rozpis dní (riadky) a počty pribudli neskôr — staršie
+        // uzávierky ho nemajú a MUSIA ho aj naďalej nemať (nie ako prázdne
+        // pole), inak by appka nevedela rozlíšiť "nikdy sa neukladal" od
+        // "uložil sa, ale v tomto období naozaj nič nebolo" (viď maRiadky
+        // v src/vykazy.js, vykazZoZmrazenia). Preto sa polia pridajú iba
+        // vtedy, keď ich klient naozaj poslal.
+        if (!Array.isArray(v?.riadky)) return zaklad;
+        return {
+          ...zaklad,
+          riadky: v.riadky.map(ocistiRiadokVyplatenia).filter(Boolean).slice(0, MAX_RIADKOV_VYPLATENIA),
+          pocetSmien: nezaporneCele(v?.pocetSmien),
+          pocetDuelov: nezaporneCele(v?.pocetDuelov),
+          pocetKombi: nezaporneCele(v?.pocetKombi),
+          pocetOff: nezaporneCele(v?.pocetOff),
+          pocetPlatenychDni: nezaporneCele(v?.pocetPlatenychDni),
+        };
+      });
     out.push({
       id: String(u.id || "uz" + Math.random().toString(36).slice(2, 10)).slice(0, 60),
       mesiac,

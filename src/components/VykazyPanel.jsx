@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { SK_MONTHS, ROLE_LABELS } from "../constants";
 import { skDate } from "../dateUtils";
-import { vykazOsoby, eur, hod } from "../vykazy";
+import { vykazOsobyObdobie, eur, hod } from "../vykazy";
 import { exportVykazXLSX, exportVykazCSV, tlacVykaz } from "../vykazExport";
 
 /* Mesačné výkazy (Fáza 2).
@@ -15,10 +15,24 @@ function Suhrn({ v }) {
   if (v.pocetKombi) kusky.push(`${v.pocetKombi}× smena + Duel`);
   if (v.hodiny) kusky.push(`${hod(v.hodiny)} nadčas`);
   if (v.pocetOff) kusky.push(`${v.pocetOff}× nemohol`);
-  return <>{kusky.join(" · ") || "žiadne odrobené dni"}</>;
+  if (kusky.length) return <>{kusky.join(" · ")}</>;
+  // Staršia uzávierka (spred tejto opravy) nemala uložený podrobný rozpis —
+  // keby sa tu ticho ukázalo "žiadne odrobené dni" napriek kladnej sume
+  // vyššie, vyzeralo by to ako protirečenie (a bolo by to zavádzajúce).
+  if (!v.maRiadky && v.spoluC) return <>podrobnosti nie sú k tejto staršej uzávierke uložené</>;
+  return <>žiadne odrobené dni</>;
 }
 
 function DetailDni({ v }) {
+  if (!v.maRiadky) {
+    return (
+      <div className="mt-1.5 border-t border-f-hair pt-1.5 text-[11px] text-f-faint2">
+        {v.spoluC
+          ? "Táto uzávierka vznikla ešte predtým, než appka ukladala aj rozpis podľa jednotlivých dní — vidno iba súčet vyššie."
+          : "V tomto období nič."}
+      </div>
+    );
+  }
   if (!v.riadky.length) return <div className="text-[11px] text-f-faint2 py-2">V tomto období nič.</div>;
   return (
     <div className="mt-1.5 border-t border-f-hair">
@@ -40,7 +54,7 @@ function DetailDni({ v }) {
 }
 
 export default function VykazyPanel({
-  crew, dni, cellOf, sadzby, me, canSeeAll, mesiacIdx, mesiace, onSetMesiac, onClose,
+  crew, dni, cellOf, sadzby, uzavierky, me, canSeeAll, mesiacIdx, mesiace, onSetMesiac, onClose,
 }) {
   const [otvoreny, setOtvoreny] = useState(null);
 
@@ -51,9 +65,13 @@ export default function VykazyPanel({
     return [];
   }, [crew, canSeeAll, me]);
 
+  // Pre uzavretý mesiac sa berie zmrazený záznam z uzávierky (presne to, čo
+  // bolo vyplatené), nie prepočet naživo — inak by neskoršia zmena sadzby
+  // alebo opravená bunka v rozpise ticho zmenila aj to, čo appka ukazuje ako
+  // "uzavreté", a uzávierka by tak prestala byť dôkazom (viď UzavierkyPanel).
   const vykazy = useMemo(
-    () => ktorych.map((osoba) => vykazOsoby({ osoba, dni, cellOf, sadzby })),
-    [ktorych, dni, cellOf, sadzby],
+    () => ktorych.map((osoba) => vykazOsobyObdobie({ osoba, dni, cellOf, sadzby, uzavierky })),
+    [ktorych, dni, cellOf, sadzby, uzavierky],
   );
 
   const spolu = useMemo(
@@ -113,7 +131,12 @@ export default function VykazyPanel({
           {/* súčet za všetkých — len pre vedúcich a produkčného */}
           {canSeeAll && (
             <div className="flex items-baseline gap-2 py-2 mb-1 border-y border-f-border">
-              <div className="text-[11px] font-extrabold uppercase tracking-wider text-f-text">Spolu {mesiacLabel}</div>
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-f-text">
+                Spolu {mesiacLabel}
+                {vykazy.length > 0 && vykazy.every((v) => v.zamrznuty) && (
+                  <span className="ml-1.5" title="Zmrazené uzávierkou — nemení sa ani pri neskoršej zmene sadzby alebo rozpisu">🔒</span>
+                )}
+              </div>
               <div className="text-[10px] text-f-faint2">{spolu.dni} platených dní · {hod(spolu.hodiny) || "0 h"} nadčas</div>
               <div className="ml-auto font-mono text-sm font-extrabold text-f-text">{eur(spolu.spoluC)}</div>
             </div>
@@ -132,6 +155,9 @@ export default function VykazyPanel({
                     <span className="text-[10px] text-f-faint2 shrink-0 hidden sm:inline">
                       {ROLE_LABELS[v.osoba.role || "kamera"]}
                     </span>
+                    {v.zamrznuty && (
+                      <span className="text-[10px] shrink-0" title="Zmrazené uzávierkou — nemení sa ani pri neskoršej zmene sadzby alebo rozpisu">🔒</span>
+                    )}
                     <span className="ml-auto font-mono text-xs font-extrabold text-f-text shrink-0">{eur(v.spoluC)}</span>
                     <span className="text-f-faint text-[10px] shrink-0 no-print">{je ? "▲" : "▼"}</span>
                   </button>

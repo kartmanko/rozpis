@@ -956,6 +956,15 @@ export default function App() {
         crewId: osoba.id,
         meno: osoba.name,
         profesia: osoba.role || "kamera",
+        // Podrobný rozpis dní sa ukladá spolu so súčtami (nielen tie), aby
+        // VykazyPanel vedel v uzavretom mesiaci zobraziť to isté, čo sa tu
+        // zmrazilo, aj po rozkliknutí na jednotlivé dni — nielen súčet.
+        riadky: v.riadky,
+        pocetSmien: v.pocetSmien,
+        pocetDuelov: v.pocetDuelov,
+        pocetKombi: v.pocetKombi,
+        pocetOff: v.pocetOff,
+        pocetPlatenychDni: v.pocetPlatenychDni,
         hodiny: v.hodiny,
         zakladC: v.zakladC,
         nadcasC: v.nadcasC,
@@ -1595,6 +1604,7 @@ export default function App() {
           dni={vykazDni}
           cellOf={cellOf}
           sadzby={sadzby}
+          uzavierky={uzavierky}
           me={me}
           canSeeAll={!!caps.vykazVsetkych}
           mesiacIdx={vykazMesiac}

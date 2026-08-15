@@ -87,6 +87,86 @@ export function mesiacUzavrety(uzavierky, iso) {
   return (uzavierky || []).some((u) => u.mesiac === mesiac && !u.zrusene);
 }
 
+/** Aktívna (nezrušená) uzávierka pre daný mesiac ("YYYY-MM"), ak existuje. */
+export function najdiAktivnuUzavierku(uzavierky, mesiac) {
+  return (uzavierky || []).find((u) => u.mesiac === mesiac && !u.zrusene) || null;
+}
+
+/** Prerobí jeden zmrazený záznam z uzávierky (App.jsx, uzavriMesiac ->
+    zaznam.vyplatene) na rovnaký tvar, aký vracia vykazOsoby — aby ho vedel
+    zobraziť rovnaký kód ako živý výkaz (VykazyPanel).
+
+    Staršie uzávierky (uzavreté pred touto opravou) nemali uložený podrobný
+    rozpis jednotlivých dní, iba súčty za celý mesiac — "maRiadky: false"
+    appke povie, že riadky nižšie sú prázdne PRETO, že sa nikdy neukladali,
+    nie preto, že by v tom mesiaci človek nič neodrobil (to by sa dalo zle
+    pochopiť, keby spoluC bolo napriek "žiadnym dňom" kladné). */
+export function vykazZoZmrazenia(zaznam, osoba) {
+  const z = (zaznam?.vyplatene || []).find((v) => String(v.crewId) === String(osoba.id));
+  if (!z) {
+    return {
+      osoba, riadky: [], maRiadky: false,
+      pocetSmien: 0, pocetDuelov: 0, pocetKombi: 0, pocetOff: 0, pocetPlatenychDni: 0,
+      hodiny: 0, zakladC: 0, nadcasC: 0, spoluC: 0,
+    };
+  }
+  return {
+    osoba,
+    riadky: z.riadky || [],
+    maRiadky: Array.isArray(z.riadky),
+    pocetSmien: z.pocetSmien || 0,
+    pocetDuelov: z.pocetDuelov || 0,
+    pocetKombi: z.pocetKombi || 0,
+    pocetOff: z.pocetOff || 0,
+    pocetPlatenychDni: z.pocetPlatenychDni || 0,
+    hodiny: z.hodiny || 0,
+    zakladC: z.zakladC || 0,
+    nadcasC: z.nadcasC || 0,
+    spoluC: z.spoluC || 0,
+  };
+}
+
+/**
+ * Výkaz jedného človeka za zadané dni, ktoré môžu patriť do viacerých
+ * mesiacov naraz — pre KAŽDÝ mesiac zvlášť sa rozhodne, či je uzavretý
+ * (vezme sa zmrazený záznam z uzávierky) alebo otvorený (počíta sa naživo
+ * z aktuálnych buniek a sadzieb), presne tak, ako to už robí UzavierkyPanel
+ * pre jeden mesiac. Bez tohto by VykazyPanel v uzavretom mesiaci ukazoval
+ * prepočítané (možno už iné) čísla namiesto toho, čo bolo naozaj vyplatené —
+ * presne to, čomu má uzávierka slúžiť ako dôkaz, by tak bolo ticho obídené.
+ */
+export function vykazOsobyObdobie({ osoba, dni, cellOf, sadzby, uzavierky }) {
+  const poMesiacoch = new Map();
+  for (const d of dni) {
+    const m = d.iso.slice(0, 7);
+    if (!poMesiacoch.has(m)) poMesiacoch.set(m, []);
+    poMesiacoch.get(m).push(d);
+  }
+
+  const casti = [...poMesiacoch.entries()].map(([mesiac, dniMesiaca]) => {
+    const zaznam = najdiAktivnuUzavierku(uzavierky, mesiac);
+    return zaznam
+      ? { ...vykazZoZmrazenia(zaznam, osoba), zamrznuty: true }
+      : { ...vykazOsoby({ osoba, dni: dniMesiaca, cellOf, sadzby }), zamrznuty: false };
+  });
+
+  return {
+    osoba,
+    riadky: casti.flatMap((c) => c.riadky),
+    zamrznuty: casti.length > 0 && casti.every((c) => c.zamrznuty),
+    maRiadky: casti.every((c) => c.maRiadky !== false),
+    pocetSmien: casti.reduce((a, c) => a + c.pocetSmien, 0),
+    pocetDuelov: casti.reduce((a, c) => a + c.pocetDuelov, 0),
+    pocetKombi: casti.reduce((a, c) => a + c.pocetKombi, 0),
+    pocetOff: casti.reduce((a, c) => a + c.pocetOff, 0),
+    pocetPlatenychDni: casti.reduce((a, c) => a + c.pocetPlatenychDni, 0),
+    hodiny: casti.reduce((a, c) => a + c.hodiny, 0),
+    zakladC: casti.reduce((a, c) => a + c.zakladC, 0),
+    nadcasC: casti.reduce((a, c) => a + c.nadcasC, 0),
+    spoluC: casti.reduce((a, c) => a + c.spoluC, 0),
+  };
+}
+
 /** Slovný popis toho, za čo v ten deň peniaze sú. */
 export function popisDna(cell) {
   if (!cell || cell.off) return "nemôže";
