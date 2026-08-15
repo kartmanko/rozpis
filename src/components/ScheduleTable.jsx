@@ -26,6 +26,42 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
     return () => ro.disconnect();
   }, [crew]);
 
+  /* Prilepený stĺpec "Deň" (112px, w-28) je širší než jeden stĺpec štábu
+     (76px, w-[76px]) — bez zarovnania mohol vodorovný scroll (prstom aj
+     kolieskom) skončiť kdekoľvek, aj uprostred stĺpca. Taký stĺpec potom bol
+     napoly schovaný POD prilepeným stĺpcom: časť mena odrezaná uprostred slova
+     a tlačidlo "◀" úplne neviditeľné. Skúšané najprv cez čisté CSS
+     (scroll-snap-align na <td>/<th>) — v tabuľke so "border-collapse" sa to
+     spoľahlivo nesprávalo (overené priamo v prehliadači), preto ide ručne:
+     po tom, čo sa scroll na chvíľu zastaví, sa vodorovná pozícia doskočí na
+     najbližšiu hranicu stĺpca. Šírka stĺpca sa meria z DOM-u (nie natvrdo
+     zapísané číslo), nech to nepokazí zmena CSS niekde inde. */
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let timer = null;
+    const doskocNaHranicu = () => {
+      const dataTh = el.querySelector("thead th:not(.left-0)");
+      const colW = dataTh?.getBoundingClientRect().width;
+      if (!colW) return;
+      const cielene = Math.min(
+        Math.max(Math.round(el.scrollLeft / colW) * colW, 0),
+        el.scrollWidth - el.clientWidth
+      );
+      if (Math.abs(cielene - el.scrollLeft) > 1) el.scrollTo({ left: cielene, behavior: "smooth" });
+    };
+    const onScroll = () => {
+      clearTimeout(timer);
+      timer = setTimeout(doskocNaHranicu, 120);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      clearTimeout(timer);
+    };
+  }, [crew]);
+
   /* --- ťahanie myšou/prstom pre hromadný výber (ako v Exceli) ---
      Myš: ťahanie sa spustí hneď pri stlačení (neruší sa so skrolovaním, to ide cez koliesko).
      Dotyk: ťahanie sa spustí až po PODRŽANÍ (~450ms) bez väčšieho pohybu, nech bežné
@@ -106,7 +142,7 @@ export default function ScheduleTable({ days, crew, cells, cellOf, canEdit, bulk
     // Skutočne ohraničená výška (.schedule-scroll, pozri index.css) — bez nej by tento
     // div nikdy sám neskroloval (obsah by ho len naťahoval) a "position: sticky" hlavička
     // by sa vizuálne strácala mimo obrazovky namiesto toho, aby zostala prilepená navrchu.
-    <div className="schedule-scroll overflow-auto bg-f-bg">
+    <div ref={scrollRef} className="schedule-scroll overflow-auto bg-f-bg">
       <table className="border-collapse text-sm w-full font-sans table-fixed">
         {/* Poznámka: "position: sticky" sa dáva priamo na <th> bunky, nie na <thead> —
             sticky na table-header-group nefunguje spoľahlivo vo všetkých prehliadačoch. */}
