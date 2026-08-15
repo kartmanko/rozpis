@@ -43,7 +43,7 @@ export default function ReportyPanel({ reporty, canEdit, onSetDatum, onPotvrdDen
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Denné reporty</div>
         <span className="text-[11px] text-f-faint2 font-mono">{celkom}</span>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
 
       {!celkom && (

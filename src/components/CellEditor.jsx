@@ -84,7 +84,7 @@ export default function CellEditor({ sel, crew, dovolene = [], cell, onSet, onSw
         <div className="flex items-center gap-2 mb-2.5">
           <div className="text-sm font-semibold text-f-text">{person?.name} — {skDate(sel.iso)}</div>
           <div className="grow" />
-          <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
+          <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
         </div>
         <button
           onClick={() => onSet({ off: !cell.off })}
@@ -105,7 +105,7 @@ export default function CellEditor({ sel, crew, dovolene = [], cell, onSet, onSw
       <div className="flex items-center gap-2 mb-2.5">
         <div className="text-sm font-semibold text-f-text">{person?.name} — {skDate(sel.iso)}</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-2">
         {/* Nadčas sa z "Vyčistiť" vynechá, keď je mesiac uzavretý — inak by to

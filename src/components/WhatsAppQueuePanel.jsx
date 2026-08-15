@@ -4,7 +4,7 @@ export default function WhatsAppQueuePanel({ pendingHook, crew, dovolene, onReso
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">WhatsApp bridge — nepriradené správy</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
       <div className="text-xs text-f-faint mb-2">
         Toto sú správy z WhatsApp bridge, ktorých telefónne číslo appka nevie priradiť k nikomu zo štábu. Nič sa nezapíše, kým tu ručne nevyberieš osobu — telefón sa potom zapamätá ako alias, nabudúce sa už priradí automaticky.

@@ -11,7 +11,7 @@ export default function BulkActionBar({ count, allowDuel, onApply, onClearSelect
         <button onClick={onUndo} disabled={!canUndo} title="Späť (Ctrl/Cmd+Z)" className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text disabled:opacity-30 px-1.5">↶ Späť</button>
         <button onClick={onRedo} disabled={!canRedo} title="Znova (Ctrl/Cmd+Shift+Z)" className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text disabled:opacity-30 px-1.5">↷ Znova</button>
         <button onClick={onClearSelection} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zrušiť výber</button>
-        <button onClick={onExit} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2">Zavrieť</button>
+        <button onClick={onExit} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-1 items-center">
         <button onClick={() => onApply({ off: false, shift: null, duel: false, nadcas: 0 })} disabled={!count} className="px-3 py-1.5 rounded-lg text-sm bg-f-panel2 hover:bg-f-border text-f-muted disabled:opacity-40 transition-colors">Vyčistiť</button>

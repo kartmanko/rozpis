@@ -62,7 +62,7 @@ export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) 
       <div className="flex items-center mb-2.5">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Kontakty</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
 
       <p className="text-xs text-f-faint leading-relaxed mb-3">

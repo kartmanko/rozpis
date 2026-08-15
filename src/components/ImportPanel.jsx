@@ -115,7 +115,7 @@ export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, 
             <option value={10}>Október</option>
           </select>
         </label>
-        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
 
       <input type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && analyze(e.target.files)} className="text-sm text-f-muted" />

@@ -167,7 +167,7 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">Zostaviť dispo</div>
         <div className="grow" />
-        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={handleZavriet} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
 
       {!canEdit && (

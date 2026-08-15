@@ -4,7 +4,7 @@ export default function LogPanel({ log, onClose }) {
       <div className="flex items-center mb-2">
         <div className="text-xs font-extrabold uppercase tracking-widest text-f-text">História zmien</div>
         <div className="grow" />
-        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text">Zavrieť</button>
+        <button onClick={onClose} className="text-[11px] font-bold uppercase tracking-wider text-f-faint hover:text-f-text px-2 py-1.5 -m-1.5">Zavrieť</button>
       </div>
       {log.length === 0 && <div className="text-sm text-f-faint">Zatiaľ žiadne zmeny.</div>}
       <ul className="space-y-1">
