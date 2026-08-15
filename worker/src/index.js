@@ -1433,11 +1433,23 @@ async function spracujDispoMail(env, { predmet, od, text, ts, msgId }) {
   const cistyText = String(text || "").trim();
   if (!cistyText) return { ignored: true, reason: "prázdny mail" };
 
-  // ten istý mail môže doraziť dvakrát (preposlanie, opakované doručenie)
+  // Ten istý mail môže doraziť dvakrát (preposlanie, opakované doručenie) —
+  // na rozdiel od hookmsg:<id> v spracujHookSpravu (kde je opakovanie
+  // neškodné, lebo výsledná zmena je idempotentná) tu KAŽDÝ prechod pridáva
+  // NOVÝ návrh s vlastným náhodným id do pendingDispo, takže "prečítaj a
+  // označ" bez zámku by pri súbežnom doručení mohlo nechať prejsť oboje a
+  // ten istý mail by sa v appke ukázal dvakrát. Zámerne sa do frontu
+  // zaraďuje iba táto rýchla kontrola (KV get+put), nie celá funkcia —
+  // volanie na Anthropic nižšie trvá aj sekundy a nemá zmysel ním blokovať
+  // všetky ostatné zápisy do KV.
   const kluc = msgId ? "dispomail:" + String(msgId).slice(0, 160) : "";
   if (kluc) {
-    if (await env.ROZPIS_KV.get(kluc)) return { duplicate: true, reason: "tento mail už bol spracovaný" };
-    await env.ROZPIS_KV.put(kluc, "1", { expirationTtl: HOOKMSG_TTL });
+    const uzSpracovany = await zaradDoRadu(async () => {
+      if (await env.ROZPIS_KV.get(kluc)) return true;
+      await env.ROZPIS_KV.put(kluc, "1", { expirationTtl: HOOKMSG_TTL });
+      return false;
+    });
+    if (uzSpracovany) return { duplicate: true, reason: "tento mail už bol spracovaný" };
   }
 
   const prislo = datumSpravy(ts);
