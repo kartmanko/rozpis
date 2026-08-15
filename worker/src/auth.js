@@ -408,13 +408,22 @@ export async function handleAuthRequest(request, env, json) {
     return json({ error: "Zadaj platnú e-mailovú adresu." }, 400, env);
   }
 
-  // obmedzenie počtu žiadostí, aby sa nedal nikomu zaspamovať mail
+  // Obmedzenie počtu žiadostí, aby sa nedal nikomu zaspamovať mail. "Prečítaj
+  // počet, over limit, zapíš +1" bolo donedávna bez poistky — pár súbežných
+  // žiadostí (napr. dvojklik alebo automatický retry) mohlo všetky vychádzať
+  // z toho istého starého počtu a limit tak o pár volaní prekĺznuť. Zaradenie
+  // do rovnakého frontu ako ostatné zápisy (rad.js) to serializuje; funkcia
+  // sa volá len tu, nie zvnútra iného frontu, takže niet rizika zacyklenia.
   const rateKey = "rate:" + (await sha256hex(email));
-  const count = Number((await env.ROZPIS_KV.get(rateKey)) || 0);
-  if (count >= RATE_MAX) {
+  const zamietnute = await zaradDoRadu(async () => {
+    const count = Number((await env.ROZPIS_KV.get(rateKey)) || 0);
+    if (count >= RATE_MAX) return true;
+    await env.ROZPIS_KV.put(rateKey, String(count + 1), { expirationTtl: RATE_TTL });
+    return false;
+  });
+  if (zamietnute) {
     return json({ error: "Priveľa pokusov. Skús to o hodinu, alebo napíš adminovi." }, 429, env);
   }
-  await env.ROZPIS_KV.put(rateKey, String(count + 1), { expirationTtl: RATE_TTL });
 
   const users = await readUsers(env);
   const user = findUser(users, email);
@@ -455,10 +464,19 @@ export async function handleAuthVerify(request, env, json, corsHeaders) {
   const token = String(body.token || "");
   if (!token) return json({ error: "Chýba prihlasovací token." }, 400, env);
 
+  // "Prečítaj a zmaž" nebolo atomické — dva súbežné /auth/verify s tým istým
+  // tokenom (napr. mailový klient, čo si odkaz sám otvorí na "kontrolu", a
+  // hneď za tým človek) mohli oba vidieť token ešte nezmazaný a oba by sa
+  // prihlásili z JEDNÉHO odkazu, ktorý mal byť jednorazový. Zaradenie do
+  // rovnakého frontu (rad.js) zaručí, že token spotrebuje najviac jeden
+  // volajúci; funkcia sa volá len tu, nie zvnútra iného frontu.
   const magicKey = "magic:" + (await sha256hex(token));
-  const raw = await env.ROZPIS_KV.get(magicKey);
+  const raw = await zaradDoRadu(async () => {
+    const r = await env.ROZPIS_KV.get(magicKey);
+    if (r) await env.ROZPIS_KV.delete(magicKey); // jednorazové použitie
+    return r;
+  });
   if (!raw) return json({ error: "Prihlasovací odkaz je neplatný alebo už vypršal. Vyžiadaj si nový." }, 401, env);
-  await env.ROZPIS_KV.delete(magicKey); // jednorazové použitie
 
   let data;
   try {
