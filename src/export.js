@@ -23,9 +23,21 @@ function buildRows(days, crew, cellOf) {
   return [head, ...rows];
 }
 
+/* Meno v Štábe aj poznámka k bunke sú voľný text bez kontroly — keby niekto
+   zapísal hodnotu začínajúcu na =, +, - alebo @, Excel/Sheets ju pri otvorení
+   CSV vezme ako VZOREC (nezávisle od úvodzoviek okolo), nie ako text (klasická
+   "CSV injection", napr. =CMD|'/C calc'!A0 by pri otvorení naozaj spustilo
+   príkaz). Predsunutá jednoduchá úvodzovka donúti tabuľkové procesory brať
+   hodnotu vždy ako čistý text. */
+const CSV_VZOREC = /^[=+\-@\t\r]/;
+const bezpecnaBunka = (v) => {
+  const s = String(v);
+  return CSV_VZOREC.test(s) ? "'" + s : s;
+};
+
 export function exportCSV(days, crew, cellOf) {
   const table = buildRows(days, crew, cellOf);
-  const csv = table.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+  const csv = table.map((r) => r.map((v) => `"${bezpecnaBunka(v).replace(/"/g, '""')}"`).join(";")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
