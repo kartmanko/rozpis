@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { guessCrew } from "../matching";
 import { parseScreenshot, ApiError } from "../api";
+import { vSezone } from "../tabulkaImport";
+
+// Vision modelu sa dátum nedá veriť naslepo (rovnaký dôvod ako pri REPORT_DATE_PROMPT
+// na serveri) — zle tvarovaný alebo mimo sezóny dátum by sa uložil ako bunka, ktorú
+// tabuľka (iteruje iba po dňoch sezóny) nikdy nezobrazí. Admin by si myslel, že deň
+// zapísal, a v skutočnosti by sa nestalo nič, potichu.
+const jeIso = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const platneDni = (pole) => (Array.isArray(pole) ? pole : []).filter((d) => jeIso(d) && vSezone(d));
 
 export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, onClose, setStatus, onRegisterCloseGuard }) {
   const [month, setMonth] = useState(8);
@@ -24,7 +32,12 @@ export default function ImportPanel({ crew, dovolene, setCrew, setCell, addLog, 
         // rovno predvyplnil niekto cudzí a "Zapísať do tabuľky" by to poslalo ďalej
         const povoleny = crew.filter((c) => (dovolene || []).includes(c.id));
         (parsed.items || parsed || []).forEach((p) =>
-          found.push({ ...p, crewId: guessCrew(povoleny, p.sender, p.phone) })
+          found.push({
+            ...p,
+            unavailable: platneDni(p.unavailable),
+            correctedAvailable: platneDni(p.correctedAvailable),
+            crewId: guessCrew(povoleny, p.sender, p.phone),
+          })
         );
       }
       setRows((r) => [...r, ...found]);

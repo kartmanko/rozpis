@@ -940,8 +940,13 @@ async function spracujHookSpravu(env, state, msg) {
     return { vysledok: { error: "Nepodarilo sa spracovať text správy: " + e.message }, chyba502: true, mutacie };
   }
 
-  const unavailable = Array.isArray(parsed.unavailable) ? parsed.unavailable : [];
-  const correctedAvailable = Array.isArray(parsed.correctedAvailable) ? parsed.correctedAvailable : [];
+  // jeIso() — modelu sa dátum nedá veriť naslepo, rovnako ako pri REPORT_DATE_PROMPT
+  // vyššie. Bez tejto kontroly by zle tvarovaný dátum (napr. bez nuly na začiatku dňa)
+  // skončil rovno v kľúči bunky ("iso|crewId") a appka, ktorá bunky vyrába iba pre
+  // skutočné dni sezóny, by ho nikde nezobrazila — nahlásené "nemôže" by sa tak
+  // potichu stratilo, hoci log aj odpoveď bridgeu by hlásili, že sa zapísalo.
+  const unavailable = (Array.isArray(parsed.unavailable) ? parsed.unavailable : []).filter(jeIso);
+  const correctedAvailable = (Array.isArray(parsed.correctedAvailable) ? parsed.correctedAvailable : []).filter(jeIso);
   const noRestrictions = Boolean(parsed.noRestrictions);
   const isCorrection = Boolean(parsed.isCorrection);
 
