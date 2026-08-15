@@ -226,15 +226,29 @@ function precitajBridgeToken(env) {
   return kesovane(env, BRIDGE_TOKEN_KEY, () => env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY));
 }
 
+/* Bootstrap (vyrobNovy=false, "vyrob mi kód, ak ešte žiadny nie je") mal ten
+   istý problém ako prvé generovanie VAPID kľúča (viď vapidKluce v push.js):
+   dve súbežné GET /bridge/token skôr, než kód vôbec prvýkrát vznikol, mohli
+   OBE vidieť prázdne KV a OBE si vyrobiť VLASTNÝ nový kód — druhý zápis by
+   ten prvý ticho prepísal a prvému volajúcemu by ostal zobrazený kód, ktorý
+   v skutočnosti už nikdy nebude platiť (a nemal by ako zistiť prečo mu
+   čítačka s "jeho" kódom nefunguje). Rovnaký zdieľaný front, rovnaká rýchla
+   cesta mimo zámku pre bežný prípad (kód už existuje). */
 async function bridgeToken(env, vyrobNovy = false) {
   if (!vyrobNovy) {
     const ulozeny = await precitajBridgeToken(env);
     if (ulozeny) return ulozeny;
   }
-  const kod = novyKod();
-  await env.ROZPIS_KV.put(BRIDGE_TOKEN_KEY, kod);
-  prepisKes(env, BRIDGE_TOKEN_KEY, kod);
-  return kod;
+  return zaradDoRadu(async () => {
+    if (!vyrobNovy) {
+      const znova = await env.ROZPIS_KV.get(BRIDGE_TOKEN_KEY);
+      if (znova) { prepisKes(env, BRIDGE_TOKEN_KEY, znova); return znova; }
+    }
+    const kod = novyKod();
+    await env.ROZPIS_KV.put(BRIDGE_TOKEN_KEY, kod);
+    prepisKes(env, BRIDGE_TOKEN_KEY, kod);
+    return kod;
+  });
 }
 
 /* rovnakeTajomstvo (porovnanie v konštantnom čase) je v auth.js — používa ho
