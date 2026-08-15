@@ -810,13 +810,29 @@ async function spracujHookSpravu(env, state, msg) {
      Pečiatku kontrolujeme HNEĎ na začiatku, ešte pred čítaním textu modelom —
      nemá zmysel platiť dvakrát za to isté. Táto pečiatka sa zapisuje rovno
      (nie cez spoločný zápis na konci dávky) — musí byť vidieť hneď pre ďalšiu
-     správu v tej istej dávke aj pre druhý bridge, ktorý môže volať súbežne. */
+     správu v tej istej dávke aj pre druhý bridge, ktorý môže volať súbežne.
+
+     "Prečítaj a zapíš" tu donedávna nebolo atomické — dva bridge, ktoré doručia
+     tú istú správu naozaj súčasne, mohli obaja vidieť pečiatku ešte nezapísanú
+     a obaja pokračovať ďalej. Pri zápise do buniek (match vyššie) by to bolo
+     neškodné (skladá sa na čerstvý stav tesne pred zápisom), ale pri reporte
+     aj pri neznámom telefóne (nižšie) kontrola "už existuje" beží proti stavu
+     prečítanému NA ZAČIATKU dávky — druhé, súbežné volanie ho ešte nevidí, a
+     keďže obe vytvárajú záznam s vlastným náhodným id, výsledkom by boli dva
+     reporty alebo dva záznamy vo fronte za tú istú správu. Zaradenie do radu
+     (rad.js) to serializuje: druhé volanie uvidí pečiatku už zapísanú a skončí
+     ako duplicate skôr, než by čokoľvek vytvorilo. Funkcia sa volá len tu
+     (handlePostHook), nie zvnútra iného radu. */
   const msgKey = msgId ? "hookmsg:" + String(msgId).slice(0, 120) : "";
   if (msgKey) {
-    if (await env.ROZPIS_KV.get(msgKey)) {
+    const uzSpracovane = await zaradDoRadu(async () => {
+      if (await env.ROZPIS_KV.get(msgKey)) return true;
+      await env.ROZPIS_KV.put(msgKey, bridgeId || "1", { expirationTtl: HOOKMSG_TTL });
+      return false;
+    });
+    if (uzSpracovane) {
       return { vysledok: { duplicate: true, reason: "správu už spracoval druhý bridge" } };
     }
-    await env.ROZPIS_KV.put(msgKey, bridgeId || "1", { expirationTtl: HOOKMSG_TTL });
   }
 
   /* Neznámy chat sa NIKDY nečíta. Iba sa zapíše do zoznamu, aby si ho admin
