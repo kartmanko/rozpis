@@ -1854,7 +1854,17 @@ async function handlePushOznam(request, env, ctx) {
   };
   if (!sprava.text) return json({ error: "Prázdne upozornenie sa neposiela." }, 400, env);
 
-  const komu = Array.isArray(body.komu) && body.komu.length ? body.komu.map(String) : null;
+  let komu = Array.isArray(body.komu) && body.komu.length ? body.komu.map(String) : null;
+  // Bez výslovne vymenovaných príjemcov ide o rozoslanie celému štábu — "celý
+  // štáb" ale musí byť live zoznam z users_v1, nie surovo VŠETKY odbery uložené
+  // v KV (nacitajOdbery(env, null) by inak vrátilo aj telefóny ľudí, ktorých
+  // niekto v Prístupoch vypol tlačidlom "Vypnúť" — tí by upozornenia dostávali
+  // donekonečna, kým si appku fyzicky neodinštalujú). Rovnaký filter už
+  // používa upozorniNaDispo nižšie.
+  if (!komu) {
+    const users = await readUsers(env);
+    komu = users.filter((u) => u.active !== false).map((u) => u.email).filter(Boolean);
+  }
 
   // Rozosielanie môže trvať — nenechávame appku čakať, kým to prejde všetkými telefónmi.
   if (ctx && typeof ctx.waitUntil === "function") {
