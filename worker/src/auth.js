@@ -476,7 +476,14 @@ export async function handleAuthVerify(request, env, json, corsHeaders) {
     user = sanitizeUser({ email, name: "Hlavný admin", role: "admin" });
     users = [user];
     await writeUsers(env, users);
-    await appendAuthLog(env, `Vytvorený prvý účet (hlavný admin): ${email}`);
+    // appendAuthLog robí vlastný read-modify-write nad authlog_v1 bez zámku —
+    // dve súbežné prihlásenia (bežné, keď viacero ľudí klikne na prihlasovací
+    // odkaz naraz) by mohli obe vychádzať z toho istého pôvodného zoznamu a
+    // to neskoršie zapísanie by ticho zahodilo záznam toho skoršieho. Zaradenie
+    // do rovnakého frontu ako pri iných zápisovateľoch (viď rad.js) to serializuje.
+    // appendAuthLog samo osebe zámok NEPOUŽÍVA (volá sa aj zvnútra frontu
+    // vyššie v handlePostUsers — vlastný zámok by tam spôsobil zacyklenie).
+    await zaradDoRadu(() => appendAuthLog(env, `Vytvorený prvý účet (hlavný admin): ${email}`));
   }
 
   if (!user || user.active === false) {
@@ -489,7 +496,10 @@ export async function handleAuthVerify(request, env, json, corsHeaders) {
     JSON.stringify({ userId: user.id, email: user.email, createdAt: new Date().toISOString() }),
     { expirationTtl: SESSION_TTL }
   );
-  await appendAuthLog(env, `Prihlásenie: ${user.name || user.email}`);
+  // Viď komentár pri bootstrap-adminovi vyššie — rovnaká poistka proti
+  // súbežným prihláseniam, ktoré by si inak mohli ticho prepísať navzájom
+  // svoj záznam v histórii.
+  await zaradDoRadu(() => appendAuthLog(env, `Prihlásenie: ${user.name || user.email}`));
 
   return new Response(JSON.stringify({ user: publicUser(user) }), {
     status: 200,
