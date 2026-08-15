@@ -1011,12 +1011,17 @@ export default function App() {
   /* --- výmena smeny (jeden krok späť/znova pre celú výmenu naraz) --- */
   const swap = (iso, aId, bId) => {
     const nameOf = (id) => crew.find((c) => c.id === id)?.name || "?";
+    const zamknuty = mesiacUzavrety(uzavierky, iso);
     commitCells((prev) => {
       const a = prev[iso + "|" + aId] || emptyCell;
       const b = prev[iso + "|" + bId] || emptyCell;
       const out = { ...prev };
-      out[iso + "|" + aId] = { ...b };
-      out[iso + "|" + bId] = { ...a };
+      // V uzavretom mesiaci si nadčas ostáva každý svoj (rovnaká poistka ako
+      // pri applyBulk/NadcasRiadok/"Vyčistiť" — inak by táto výmena zapísala
+      // lokálne zmenu nadčasu, ktorú server v uzavretom mesiaci aj tak odmietne,
+      // a odvtedy by ticho blokovala úplne každé ďalšie uloženie).
+      out[iso + "|" + aId] = zamknuty ? { ...b, nadcas: a.nadcas } : { ...b };
+      out[iso + "|" + bId] = zamknuty ? { ...a, nadcas: b.nadcas } : { ...a };
       [aId, bId].forEach((cid) => {
         const k = iso + "|" + cid;
         const v = out[k];
