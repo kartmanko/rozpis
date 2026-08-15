@@ -141,6 +141,35 @@ export default function App() {
 
   const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
+
+  /* Panel sa dá zatvoriť viacerými cestami (tlačidlo "Zavrieť" v paneli, Escape,
+     prepnutie na iný panel z menu) — fokus po zatvorení doteraz nikde nešiel,
+     ostal na document.body. Klávesnicový/čítačkový človek tak po zatvorení
+     panela stratil miesto, odkiaľ pokračovať, a musel znova hľadať od začiatku
+     stránky. Zapamätá sa, čo malo fokus TESNE pred otvorením (zapamätanie je v
+     togglePanel nižšie, nie tu v efekte — dôvod viď tam), a pri zatvorení sa
+     naň fokus vráti.
+
+     Skoro všetky panely sa otvárajú z položky v menu "⋯" — tá položka je ale
+     SAMA súčasťou menu, ktoré sa otvorením panela zároveň zatvorí (setMenu(null)
+     v togglePanel), takže presne ten DOM uzol, ktorý sme si zapamätali, je v
+     čase zatvárania panela už dávno preč (menu bolo zatvorené celý ten čas, čo
+     bol panel otvorený). Fokus sa preto vracia buď na zapamätaný prvok (ak
+     ešte v stránke existuje — napr. samostatné tlačidlá mimo menu, ako "⏱ NAD
+     časy"), inak na tlačidlo "⋯", ktoré menu otváralo a ktoré JEDINÉ z celého
+     menu zostáva v DOM-e natrvalo. */
+  const fokusPredPanelomRef = useRef(null);
+  const viacBtnRef = useRef(null);
+  const predchadzajuciPanelRef = useRef(panel);
+  useEffect(() => {
+    if (predchadzajuciPanelRef.current && !panel) {
+      const el = fokusPredPanelomRef.current;
+      const cielSaHodi = el && document.contains(el) && typeof el.focus === "function";
+      (cielSaHodi ? el : viacBtnRef.current)?.focus();
+      fokusPredPanelomRef.current = null;
+    }
+    predchadzajuciPanelRef.current = panel;
+  }, [panel]);
   const [sel, setSel] = useState(null);
   const [status, setStatus] = useState("");
   const [dayDetailIso, setDayDetailIso] = useState(null);
@@ -1418,6 +1447,9 @@ export default function App() {
 
   const togglePanel = (p) => {
     if (panel && !smiemOpustitPanel()) return;
+    // Zapamätaj TERAZ (synchrónne), kým je kliknuté tlačidlo ešte v DOM-e —
+    // viď komentár pri fokusPredPanelomRef vyššie.
+    if (panel !== p) fokusPredPanelomRef.current = document.activeElement;
     setPanel(panel === p ? null : p);
     setMenu(null);
   };
@@ -1472,7 +1504,7 @@ export default function App() {
               </button>
             )}
 
-            <button title="Viac" onClick={() => setMenu(menu === "more" ? null : "more")} className="relative w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">
+            <button ref={viacBtnRef} title="Viac" onClick={() => setMenu(menu === "more" ? null : "more")} className="relative w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">
               ⋯
               {pendingHook.length > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-f-r text-f-ink text-[9px] font-bold flex items-center justify-center">{pendingHook.length}</span>}
             </button>
