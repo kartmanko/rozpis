@@ -125,6 +125,16 @@ export default function KontaktyPanel({ kontakty, setKontakty, crew, onClose }) 
                   className="px-2 py-1 rounded-lg bg-f-panel3 text-sm border border-f-border text-f-text"
                 >
                   <option value="">Patrí k… (nikto)</option>
+                  {/* Bez tejto možnosti by <select> pri crewId, ktoré medzitým zmizlo
+                      zo Štábu (CrewPanel "Zmazať" o kontaktoch nevie), tichučko spadol
+                      na prázdnu možnosť vyššie — vyzeralo by to, akoby kontakt nebol
+                      priradený k nikomu, hoci v skutočnosti stále nesie "mŕtve" id.
+                      Prístupový dopad (kto sa s tým prihlási) už hlási kontrolaPristupov
+                      v paneli Prístupy — toto je iba to, aby aj TENTO panel hovoril
+                      pravdu o tom, čo sa naozaj uloží, kým to admin vedome nezmení. */}
+                  {k.crewId && !crew.some((c) => c.id === k.crewId) && (
+                    <option value={k.crewId}>⚠ (človek už v Štábe nie je)</option>
+                  )}
                   {crew.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               )}
