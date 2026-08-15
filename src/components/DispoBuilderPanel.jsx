@@ -56,14 +56,21 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
       novy = prazdnyBlok("");
     } else {
       const existujuca = (dispo || {})[datum];
+      // Uložená skupina/zvýraznenie môže obsahovať id človeka, ktorého medzitým
+      // vymazali zo Štábu (CrewPanel maže len "crew", o dispo blokoch nevie).
+      // Bez tohto filtra by taký "mŕtvy" id ostal v "ludia"/"zvyraznene" ticho
+      // ležať — v tlačidlách nižšie (crew.map) preň niet tlačidlo, takže by sa
+      // nedal ani vidieť, ani odškrtnúť, a pri hocijakom ďalšom uložení by sa
+      // ticho poslal/uložil znova.
+      const ziveId = new Set((crew || []).map((c) => c.id));
       novy = {
         datum,
         miesto: existujuca?.miesto || "",
         pocasie: existujuca?.pocasie || "",
         poznamky: existujuca?.poznamky || "",
         harmonogram: existujuca?.harmonogram || [],
-        skupiny: existujuca?.skupiny || [],
-        zvyraznene: existujuca?.zvyraznene || [],
+        skupiny: (existujuca?.skupiny || []).map((s) => ({ ...s, ludia: (s.ludia || []).filter((id) => ziveId.has(id)) })),
+        zvyraznene: (existujuca?.zvyraznene || []).filter((id) => ziveId.has(id)),
         dalsiPrijemcovia: (existujuca?.dalsiPrijemcovia || []).join(", "),
       };
     }

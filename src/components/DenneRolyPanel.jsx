@@ -18,8 +18,17 @@ export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz,
     [denneRoly, vybranyIso],
   );
 
-  const [reziser, setReziser] = useState(zaznam?.reziser || "");
-  const [storyProduceri, setStoryProduceri] = useState(zaznam?.storyProduceri || []);
+  // Uložený záznam môže obsahovať id človeka, ktorého medzitým vymazali zo
+  // Štábu (CrewPanel maže len "crew", o denných rolách nevie). Bez tohto
+  // filtra by taký "mŕtvy" id ostal v "reziser"/"storyProduceri" ticho ležať —
+  // <select>/tlačidlá nižšie preň nemajú možnosť/tlačidlo (crew.map), takže by
+  // sa v nich nedal ani vidieť, ani zrušiť, a pri hocijakom ďalšom uložení by
+  // sa ticho zapísal znova, hoci formulár navonok ukazuje "— nikto —".
+  const platnyReziser = (id) => ((id && (crew || []).some((c) => c.id === id)) ? id : "");
+  const platniProduceri = (ids) => (ids || []).filter((id) => (crew || []).some((c) => c.id === id));
+
+  const [reziser, setReziser] = useState(platnyReziser(zaznam?.reziser));
+  const [storyProduceri, setStoryProduceri] = useState(platniProduceri(zaznam?.storyProduceri));
   const [nacitanyIso, setNacitanyIso] = useState(vybranyIso);
 
   // pri zmene dňa sa formulár predvyplní z už uloženého záznamu (ak existuje) —
@@ -27,8 +36,8 @@ export default function DenneRolyPanel({ denneRoly, crew, days, canEdit, onUloz,
   // prekresleniu formulára ešte pred tým, než sa dá zistiť, čo je vybrané
   if (nacitanyIso !== vybranyIso) {
     setNacitanyIso(vybranyIso);
-    setReziser(zaznam?.reziser || "");
-    setStoryProduceri(zaznam?.storyProduceri || []);
+    setReziser(platnyReziser(zaznam?.reziser));
+    setStoryProduceri(platniProduceri(zaznam?.storyProduceri));
   }
 
   const menoZCrew = (id) => (crew || []).find((c) => c.id === id)?.name || id;
