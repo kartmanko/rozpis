@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ROLES } from "../constants";
 import { DEFAULT_SADZBY, sadzbaProfesie, eur, naCenty } from "../vykazy";
 
@@ -11,7 +12,18 @@ const POLIA = [
   { key: "denDuel", label: "Smena + Duel", hint: "Keď v jeden deň robí smenu aj Duel." },
 ];
 
-export default function SadzbyPanel({ sadzby, canEdit, onSetSadzba, onClose }) {
+export default function SadzbyPanel({ sadzby, canEdit, onSetSadzba, addLog, onClose }) {
+  // Sadzba priamo riadi výpočet výplat, ale onChange strieľa na každý úder
+  // klávesy — logovať tam by "História zmien" zasypalo desiatkami riadkov za
+  // jedno prepísanie čísla. Namiesto toho sa hodnota pri fokuse zapamätá a
+  // riadok pribudne až pri opustení poľa (blur), a iba keď sa naozaj zmenila.
+  const zaciatokRef = useRef({});
+  const onFocusZapamataj = (kluc, hodnota) => { zaciatokRef.current[kluc] = hodnota; };
+  const onBlurZaloguj = (kluc, popis, teraz) => {
+    const predtym = zaciatokRef.current[kluc];
+    if (predtym === undefined || Number(predtym) === Number(teraz)) return;
+    addLog && addLog(`Sadzba — ${popis}: ${predtym} → ${teraz}`);
+  };
   return (
     <div className="bg-f-panel3 border-t-[3px] border-f-accent p-4 no-print">
       <div className="flex items-center gap-2 mb-1">
@@ -52,7 +64,9 @@ export default function SadzbyPanel({ sadzby, canEdit, onSetSadzba, onClose }) {
                             min="0"
                             step="1"
                             value={hodnota}
+                            onFocus={() => onFocusZapamataj(r.key + "." + p.key, hodnota)}
                             onChange={(e) => onSetSadzba(r.key, { [p.key]: e.target.value })}
+                            onBlur={() => onBlurZaloguj(r.key + "." + p.key, `${r.label} — ${p.label}`, hodnota)}
                             className="w-24 px-2 py-1 rounded-lg bg-f-panel2 border border-f-border text-f-text text-xs font-mono text-right"
                           />
                           <span className="text-f-faint text-xs">€</span>
@@ -84,7 +98,9 @@ export default function SadzbyPanel({ sadzby, canEdit, onSetSadzba, onClose }) {
                         max="100"
                         step="1"
                         value={s.nadcasPct}
+                        onFocus={() => onFocusZapamataj(r.key + ".nadcasPct", s.nadcasPct)}
                         onChange={(e) => onSetSadzba(r.key, { nadcasPct: e.target.value })}
+                        onBlur={() => onBlurZaloguj(r.key + ".nadcasPct", `${r.label} — nadčas`, s.nadcasPct)}
                         className="w-24 px-2 py-1 rounded-lg bg-f-panel2 border border-f-border text-f-text text-xs font-mono text-right"
                       />
                       <span className="text-f-faint text-xs">%</span>
