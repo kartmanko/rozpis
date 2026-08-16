@@ -357,7 +357,16 @@ export default function App() {
   // odložený stav z minula, ktorý sa ponúka obnoviť (appka navrhne, človek potvrdí)
   const [odlozene, setOdlozene] = useState(null);
 
+  // load() sa vie spustiť viackrát prekrývajúco (dvojklik na "Obnoviť", auto-refresh
+  // na pozadí presne v momente ručného kliku…) — bez poistky nižšie by odpoveď na
+  // STARŠIE volanie, ktorá dorazí AŽ PO odpovedi na novšie (bežné sieťové
+  // oneskorenie, poradie odoslania negarantuje poradie doručenia), ticho prepísala
+  // už aplikované čerstvejšie dáta staršími. loadSeqRef drží poradové číslo
+  // POSLEDNÉHO spusteného volania; odpoveď sa použije, iba keď jej volanie bolo
+  // (v momente, keď táto odpoveď dorazila) ešte stále to najnovšie spustené.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const tentoPokus = ++loadSeqRef.current;
     // nová sada dát zo servera/dema nie je "úprava" — zásobník späť/znova sa začína odznova
     undoStackRef.current = [];
     redoStackRef.current = [];
@@ -383,6 +392,10 @@ export default function App() {
     }
     try {
       const d = await fetchData();
+      // medzitým sa stihlo spustiť novšie load() (napr. druhý klik na "Obnoviť",
+      // alebo doňho vbehol auto-refresh na pozadí) — jeho odpoveď má prednosť,
+      // táto (staršia) sa zahodí, nech nič neprepíše už aplikované čerstvejšie dáta
+      if (tentoPokus !== loadSeqRef.current) return;
       if (d.crew?.length) setCrew(d.crew);
       setCells(d.cells || {});
       setNadState(d.nad || {});
@@ -408,6 +421,7 @@ export default function App() {
       setConflict(false);
       setDirty(false);
     } catch (e) {
+      if (tentoPokus !== loadSeqRef.current) return; // rovnaký dôvod ako vyššie — staršia chyba nesmie prekryť novší (úspešný) výsledok
       if (e instanceof ApiError && e.status === 401) {
         /* Session vypršala. Ukladanie na to reaguje rovnako — inak by tu človek
            ostal sedieť nad starými dátami a klikal do rozpisu, ktorý sa už
