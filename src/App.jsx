@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { buildDays, cycleInfo, skDate, todayIso } from "./dateUtils";
 import { DEFAULT_NAMES, REFRESH_INTERVAL_MS, REFRESH_PO_NAVRATE_MS, THEME_STORAGE_KEY, ROLES, SK_MONTHS } from "./constants";
-import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam, setBreakGlassPassword } from "./api";
+import { fetchData, saveData, ApiError, getApiBase, authMe, authVerify, authLogout, pushOznam, setBreakGlassPassword, fetchPocasie } from "./api";
 import { capsOf, sectionsOf, cellAccess, DEMO_USER } from "./permissions";
 import { exportCSV, exportXLSX, printSchedule } from "./export";
 import { BUILD_ID } from "./buildId.generated";
@@ -33,6 +33,8 @@ import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
+import PocasieWidget from "./components/PocasieWidget";
+import PocasiePanel from "./components/PocasiePanel";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby, mesiacUzavrety, orezNadcasVUzavretych } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce, rovnake } from "./zlucenie";
@@ -76,6 +78,11 @@ export default function App() {
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
+
+  // Počasie pre Doľany (sekcia 7 briefu) — načítava a cachuje sa NEZÁVISLE od
+  // /data (server si ho drží v KV cca 1x za hodinu), preto má vlastný stav a
+  // vlastné načítanie namiesto toho, aby bolo súčasťou zvyšku rozpisu.
+  const [pocasie, setPocasie] = useState(null); // { dni, ziskane, stale? } | null (ešte nenačítané / zlyhalo)
 
   const [loaded, setLoaded] = useState(false);
   const [connError, setConnError] = useState("");
@@ -139,7 +146,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty" | "pocasie"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
 
   /* Panel sa dá zatvoriť viacerými cestami (tlačidlo "Zavrieť" v paneli, Escape,
@@ -441,6 +448,19 @@ export default function App() {
 
   // rozpis načítavame až keď vieme, kto je prihlásený (server ho inak nevydá)
   useEffect(() => { if (me) load(); }, [load, me]);
+
+  /* --- počasie (sekcia 7 briefu) — samostatné načítanie, nezávislé od rozpisu ---
+     V demo režime (bez nastaveného servera) sa počasie vôbec nepýta, nech
+     appka bez backendu nehádže sieťové chyby zbytočne. Server si dáta cachuje
+     sám (~1x za hodinu), takže tu stačí zavolať pri prihlásení. */
+  useEffect(() => {
+    if (!me || demoMode) return;
+    let zrusene = false;
+    fetchPocasie()
+      .then((d) => { if (!zrusene) setPocasie(d); })
+      .catch(() => { /* ticho — widget sa jednoducho nezobrazí, appka kvôli tomu nespadne */ });
+    return () => { zrusene = true; };
+  }, [me, demoMode]);
 
   /* --- automatické odscrollovanie na dnešný deň pri otvorení appky --- */
   useEffect(() => {
@@ -1502,6 +1522,8 @@ export default function App() {
           <div className="grow" />
 
           <div ref={menuRef} className="flex items-center gap-1 relative">
+            <PocasieWidget pocasie={pocasie} onOpen={() => togglePanel("pocasie")} />
+
             <button title="Obnoviť" onClick={obnovRucne} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">⟳</button>
 
             <button title="Export" onClick={() => setMenu(menu === "export" ? null : "export")} className="w-8 h-8 rounded-md border border-f-border bg-f-panel text-f-muted hover:text-f-text flex items-center justify-center">↓</button>
@@ -1543,6 +1565,7 @@ export default function App() {
                   <span className="text-sm text-f-text">Motív</span>
                   <ThemeToggle theme={theme} onChange={setTheme} />
                 </div>
+                <button onClick={() => togglePanel("pocasie")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Počasie — týždeň</button>
                 <button onClick={() => togglePanel("vykazy")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Výkazy</button>
                 <button onClick={() => togglePanel("sadzby")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Sadzby</button>
                 {caps.sadzby && (
@@ -1722,6 +1745,7 @@ export default function App() {
           onRegisterCloseGuard={registerPanelCloseGuard}
         />
       )}
+      {panel === "pocasie" && <PocasiePanel pocasie={pocasie} onClose={() => setPanel(null)} />}
       {panel === "log" && <LogPanel log={log} onClose={() => setPanel(null)} />}
       {panel === "nad" && <NadPanel nad={nad} canEdit={caps.nad} onSetNad={setNad} onClose={() => setPanel(null)} />}
       {panel === "reporty" && caps.reporty && (

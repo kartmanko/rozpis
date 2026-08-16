@@ -221,4 +221,13 @@ export async function pushOznam({ nadpis, text, url, znacka, komu }) {
   return jsonPost("/push/oznam", { nadpis, text, url, znacka, komu });
 }
 
+/* ---------- počasie pre Doľany (sekcia 7 finálneho briefu) ---------- */
+// Počasie sa načítava a cachuje samostatne od /data (server si ho drží v KV
+// cca 1x za hodinu, viď worker), takže sa nedáva do saveData/fetchData.
+
+/** { dni: [{datum, tMax, tMin, kod, vychod, zapad, zrazky}, ...], ziskane, stale? } */
+export async function fetchPocasie() {
+  return request("/pocasie", { method: "GET" });
+}
+
 export { ApiError };

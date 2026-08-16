@@ -307,6 +307,80 @@ async function handleGetVersion(env) {
   return json({ version: state.version }, 200, env);
 }
 
+/* ---------- počasie (sekcia 7 briefu) ----------
+
+   Jedna stála farma, jedna lokácia — Obec Doľany (okres Pezinok), súradnice
+   podľa oficiálnej stránky obce (dolany.sk). Zdroj je Open-Meteo — zadarmo,
+   bez API kľúča, žiadny limit na bežné použitie. Appka si predpoveď na 7 dní
+   dopredu (vrátane východu/západu slnka) drží v KV a znova z Open-Meteo číta
+   iba raz za hodinu (POCASIE_CACHE_MS) — nie pri každom otvorení appky, nech
+   sa zbytočne nezaťažuje cudzí zadarmo server. Keď Open-Meteo práve neodpovie,
+   appka radšej ukáže starú (aj keď neaktuálnu) predpoveď s príznakom "stale",
+   než aby o počasí nevedela vôbec nič. */
+const POCASIE_LAT = 48.415295;
+const POCASIE_LON = 17.37935;
+const POCASIE_CACHE_KEY = "pocasie_cache_v1";
+const POCASIE_CACHE_MS = 60 * 60 * 1000; // 1 hodina
+const POCASIE_DNI = 7;
+
+/* Vyberie z Open-Meteo odpovede iba to, čo appka naozaj potrebuje, v
+   jednoduchom tvare (pole dní namiesto piatich rovnobežných polí) — a
+   zároveň ju to robí čistou, testovateľnou funkciou bez sieťového volania. */
+export function spracujOpenMeteoOdpoved(telo) {
+  const d = (telo && telo.daily) || {};
+  const casy = Array.isArray(d.time) ? d.time : [];
+  return {
+    dni: casy
+      .map((datum, i) => ({
+        datum: String(datum || ""),
+        tMax: Number.isFinite(d.temperature_2m_max?.[i]) ? Math.round(d.temperature_2m_max[i]) : null,
+        tMin: Number.isFinite(d.temperature_2m_min?.[i]) ? Math.round(d.temperature_2m_min[i]) : null,
+        kod: Number.isFinite(d.weather_code?.[i]) ? d.weather_code[i] : null,
+        vychod: d.sunrise?.[i] ? String(d.sunrise[i]) : null,
+        zapad: d.sunset?.[i] ? String(d.sunset[i]) : null,
+        zrazky: Number.isFinite(d.precipitation_probability_max?.[i]) ? Math.round(d.precipitation_probability_max[i]) : null,
+      }))
+      .filter((den) => /^\d{4}-\d{2}-\d{2}$/.test(den.datum)),
+  };
+}
+
+async function nacitajCerstvePocasie() {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${POCASIE_LAT}&longitude=${POCASIE_LON}` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max` +
+    `&timezone=Europe%2FBratislava&forecast_days=${POCASIE_DNI}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Open-Meteo vrátilo " + res.status);
+  return spracujOpenMeteoOdpoved(await res.json());
+}
+
+async function handleGetPocasie(request, env) {
+  // rovnaké pravidlo ako pri rozpise (Fáza 1) — počasie vidí iba prihlásený
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthenticated" }, 401, env);
+
+  let cache = null;
+  try {
+    const raw = await env.ROZPIS_KV.get(POCASIE_CACHE_KEY);
+    if (raw) cache = JSON.parse(raw);
+  } catch {
+    cache = null;
+  }
+
+  const cerstve = cache && Number.isFinite(Date.parse(cache.ziskane)) && Date.now() - Date.parse(cache.ziskane) < POCASIE_CACHE_MS;
+  if (cerstve) return json({ dni: cache.dni, ziskane: cache.ziskane }, 200, env);
+
+  try {
+    const nove = await nacitajCerstvePocasie();
+    const zaznam = { dni: nove.dni, ziskane: new Date().toISOString() };
+    await env.ROZPIS_KV.put(POCASIE_CACHE_KEY, JSON.stringify(zaznam));
+    return json(zaznam, 200, env);
+  } catch (e) {
+    if (cache) return json({ dni: cache.dni, ziskane: cache.ziskane, stale: true }, 200, env);
+    return json({ error: "Počasie sa nepodarilo načítať — skús to o chvíľu znova." }, 502, env);
+  }
+}
+
 /* ---------- stropy na to, čo príde zvonku ----------
 
    Appka posiela celý rozpis naraz, takže telo požiadavky je jediné miesto,
@@ -2162,6 +2236,10 @@ async function smeruj(request, env, ctx) {
   }
   if (url.pathname === "/version" && request.method === "GET") {
     return handleGetVersion(env);
+  }
+  // --- počasie (sekcia 7 briefu) ---
+  if (url.pathname === "/pocasie" && request.method === "GET") {
+    return handleGetPocasie(request, env);
   }
   // --- WhatsApp bridge (Fáza 3) ---
   if (url.pathname === "/bridge/ping" && request.method === "POST") {
