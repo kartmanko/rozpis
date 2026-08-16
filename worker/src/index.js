@@ -674,7 +674,16 @@ function datumSpravy(ts) {
   return new Date();
 }
 
-const isoDna = (d) => d.toISOString().slice(0, 10);
+/* POZOR: toISOString() by tu bola chyba — vrátila by UTC deň, nie deň podľa
+   miestneho času. Natáčanie beží v strednej Európe (CEST/CET), takže správa
+   odoslaná napr. o 00:45 miestneho času má UTC čas ešte z PREDOŠLÉHO dňa —
+   isoDna by ju omylom priradila k včerajšku. Klientská todayIso() (viď
+   src/dateUtils.js) presne z tohto dôvodu tiež nepoužíva UTC, iba tam ide
+   o miestny čas prehliadača; tu na serveri treba miestny čas natáčania
+   explicitne, preto Europe/Bratislava. */
+const isoDna = (d) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Bratislava", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(d);
 
 async function callAnthropicText(env, prompt, userText) {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
