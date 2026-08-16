@@ -120,8 +120,9 @@ export async function fetchData() {
 // "kontakty" (databáza kontaktov štábu a externých ľudí) zo sekcie 1 finálneho briefu.
 // "uzavierky" (uzávierky mesiacov + história vyplateného) zo sekcie 6 finálneho briefu.
 // "denneRoly" (kto je v daný deň hlavný režisér a Story produceri) zo sekcie 4 finálneho briefu.
-export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, baseVersion }) {
-  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, baseVersion });
+// "hlasky" (hlášky z natáčania) zo sekcie 8 finálneho briefu.
+export async function saveData({ crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log, baseVersion }) {
+  return jsonPost("/data", { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log, baseVersion });
 }
 
 /** Ktoré bridge (čítačky WhatsAppu) sa naposledy ozvali — Fáza 3. */

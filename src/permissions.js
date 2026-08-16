@@ -37,13 +37,15 @@ const SECTIONS = {
 // "denneRoly" = prideľovať pre konkrétny deň hlavného režiséra a Story producerov
 //               (nová "denná" rola, sekcia 4 briefu — priradenie na jeden deň,
 //               nie trvalá rola v USER_ROLES).
+// "hlasky" = písať hlášky z natáčania (sekcia 8 briefu) — zatiaľ iba admin, viď
+//            rovnaký komentár pri ROLE_CAPS vo worker/src/auth.js.
 const CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
-  kamera_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false, denneRoly: false },
-  rezia_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true, denneRoly: true },
-  produkcia_admin: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: true },
+  kamera_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false, denneRoly: false, hlasky: false },
+  rezia_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: false },
+  produkcia_admin: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: false },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false, hlasky: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false, hlasky: false },
 };
 
 export const capsOf = (role) => CAPS[role] || CAPS.viewer;

@@ -35,6 +35,8 @@ import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
 import PocasieWidget from "./components/PocasieWidget";
 import PocasiePanel from "./components/PocasiePanel";
+import HlaskyPanel from "./components/HlaskyPanel";
+import HlaskaWidget from "./components/HlaskaWidget";
 import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby, mesiacUzavrety, orezNadcasVUzavretych } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce, rovnake } from "./zlucenie";
@@ -75,6 +77,7 @@ export default function App() {
   const [kontakty, setKontaktyState] = useState([]); // databáza kontaktov štábu a externých ľudí
   const [uzavierky, setUzavierkyState] = useState([]); // uzávierky mesiacov + história vyplateného (sekcia 6 briefu)
   const [denneRoly, setDenneRolyState] = useState([]); // kto je v daný deň hlavný režisér a Story produceri (sekcia 4 briefu), jeden záznam na deň
+  const [hlasky, setHlaskyState] = useState([]); // hlášky z natáčania (sekcia 8 briefu) — zatiaľ ich píše len admin
   const [pendingHook, setPendingHookState] = useState([]); // nepriradené správy z WhatsApp bridge
   const [log, setLog] = useState([]);
   const [version, setVersion] = useState(0);
@@ -112,7 +115,7 @@ export default function App() {
      nikdy ani neodišlo na server. Server aj tak kontroluje všetko ešte raz
      (checkStateChange) — toto je len brána, kedy sa vôbec skúsiť uložiť. */
   const canSaveAnything = Boolean(me) && (
-    canEditCells || caps.crew || caps.nad || caps.pending || caps.users || caps.sadzby || caps.reporty || caps.denneRoly
+    canEditCells || caps.crew || caps.nad || caps.pending || caps.users || caps.sadzby || caps.reporty || caps.denneRoly || caps.hlasky
   );
 
   // čo smie prihlásený človek robiť s bunkou danej osoby: "full" | "off" | "none"
@@ -146,7 +149,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty" | "pocasie"
+  const [panel, setPanel] = useState(null); // "crew" | "import" | "tabulka" | "log" | "admin" | "hook" | "nad" | "vykazy" | "sadzby" | "uzavierky" | "denneRoly" | "chaty" | "reporty" | "dispo" | "dispoBuilder" | "kontakty" | "pocasie" | "hlasky"
   const [menu, setMenu] = useState(null); // "export" | "more" | null
 
   /* Panel sa dá zatvoriť viacerými cestami (tlačidlo "Zavrieť" v paneli, Escape,
@@ -388,6 +391,7 @@ export default function App() {
       setKontaktyState(DEMO_DATA.kontakty || []);
       setUzavierkyState(DEMO_DATA.uzavierky || []);
       setDenneRolyState(DEMO_DATA.denneRoly || []);
+      setHlaskyState(DEMO_DATA.hlasky || []);
       setPendingHookState([]);
       setLog(DEMO_DATA.log);
       setVersion(1);
@@ -414,6 +418,7 @@ export default function App() {
       setKontaktyState(d.kontakty || []);
       setUzavierkyState(d.uzavierky || []);
       setDenneRolyState(d.denneRoly || []);
+      setHlaskyState(d.hlasky || []);
       setPendingHookState(d.pendingHook || []);
       setLog(d.log || []);
       setVersion(d.version || 0);
@@ -421,7 +426,7 @@ export default function App() {
         crew: d.crew || [], cells: d.cells || {}, nad: d.nad || {}, sadzby: d.sadzby || {},
         chaty: d.chaty || {}, reporty: d.reporty || {}, dispo: d.dispo || {},
         pendingDispo: d.pendingDispo || [], kontakty: d.kontakty || [], uzavierky: d.uzavierky || [],
-        denneRoly: d.denneRoly || [], pendingHook: d.pendingHook || [], log: d.log || [],
+        denneRoly: d.denneRoly || [], hlasky: d.hlasky || [], pendingHook: d.pendingHook || [], log: d.log || [],
       };
       pokusyOZlucenie.current = 0;
       setConnError("");
@@ -528,7 +533,7 @@ export default function App() {
         return;
       }
       setSaving(true);
-      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log };
+      const odoslane = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log };
       try {
         const res = await saveData({ ...odoslane, baseVersion: version });
         setVersion(res.version);
@@ -573,6 +578,7 @@ export default function App() {
             setKontaktyState((prevZive) => (rovnake(prevZive, odoslane.kontakty) ? (s.kontakty || []) : prevZive));
             setUzavierkyState((prevZive) => (rovnake(prevZive, odoslane.uzavierky) ? (s.uzavierky || []) : prevZive));
             setDenneRolyState((prevZive) => (rovnake(prevZive, odoslane.denneRoly) ? (s.denneRoly || []) : prevZive));
+            setHlaskyState((prevZive) => (rovnake(prevZive, odoslane.hlasky) ? (s.hlasky || []) : prevZive));
             setPendingHookState((prevZive) => (rovnake(prevZive, odoslane.pendingHook) ? (s.pendingHook || []) : prevZive));
             // kľúče, ktoré medzitým zmenil TEN CUDZÍ zápis — viď komentár pri
             // commitZlucenieCells, prečo sa na nich živý klik neaplikuje.
@@ -589,7 +595,7 @@ export default function App() {
               crew: s.crew || [], cells: s.cells || {}, nad: s.nad || {}, sadzby: s.sadzby || {},
               chaty: s.chaty || {}, reporty: s.reporty || {}, dispo: s.dispo || {},
               pendingDispo: s.pendingDispo || [], kontakty: s.kontakty || [], uzavierky: s.uzavierky || [],
-              denneRoly: s.denneRoly || [], pendingHook: s.pendingHook || [], log: s.log || [],
+              denneRoly: s.denneRoly || [], hlasky: s.hlasky || [], pendingHook: s.pendingHook || [], log: s.log || [],
             };
             setDirty(true);
             setStatus("Medzitým ukladal niekto iný — zmeny som poskladal dokopy.");
@@ -618,7 +624,7 @@ export default function App() {
     }, 600);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, zapisPokus]);
+  }, [crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log, zapisPokus]);
 
   /* Keď telefónu nabehne signál, nečaká sa na ďalší odstup — skúsi sa hneď.
      Toto je ten bežný prípad: človek vyjde spoza stodoly a zmena má odletieť. */
@@ -1029,6 +1035,7 @@ export default function App() {
 
   const wrappedSetCrew = useCallback((updater) => { setCrew(updater); setDirty(true); }, []);
   const wrappedSetKontakty = useCallback((updater) => { setKontaktyState(updater); setDirty(true); }, []);
+  const wrappedSetHlasky = useCallback((updater) => { setHlaskyState(updater); setDirty(true); }, []);
 
   /* Uzávierka mesiaca + história vyplateného (sekcia 6 briefu). Uzavretím sa
      zmrazí výkaz KAŽDÉHO v štábe presne taký, aký je v tejto chvíli — to je ten
@@ -1431,7 +1438,7 @@ export default function App() {
 
   const obnovOdlozene = useCallback(() => {
     if (!odlozene) return;
-    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log };
+    const teraz = { crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log };
     /* Skladá sa tým istým pravidlom ako pri strete dvoch ľudí naraz: dopíšu sa
        iba moje bunky, cudzie ostanú tak, ako sú. Ak sa to prekrýva, radšej nič. */
     const zlucene = skusZlucit(odlozene.zaklad, odlozene.stav, teraz);
@@ -1451,7 +1458,7 @@ export default function App() {
     setDirty(true);
     setOdlozene(null);
     setStatus("Odložené zmeny vrátené — ukladám.");
-  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, pendingHook, log, commitZlucenieCells]);
+  }, [odlozene, crew, cells, nad, sadzby, chaty, reporty, dispo, pendingDispo, kontakty, uzavierky, denneRoly, hlasky, pendingHook, log, commitZlucenieCells]);
 
   const zahodOdlozene = useCallback(() => {
     zahodNeulozene();
@@ -1595,6 +1602,9 @@ export default function App() {
                 {caps.users && (
                   <button onClick={() => togglePanel("kontakty")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Kontakty</button>
                 )}
+                {caps.hlasky && (
+                  <button onClick={() => togglePanel("hlasky")} className="text-left px-2.5 py-1.5 rounded-md text-sm text-f-text hover:bg-f-panel2">Hlášky z natáčania</button>
+                )}
                 {canEditAll && (
                   <>
                     <div className="border-t border-f-hair my-1" />
@@ -1656,6 +1666,8 @@ export default function App() {
           ))}
         </div>
 
+        <HlaskaWidget hlasky={hlasky} />
+
         {(conflictsCount > 0 || saving || status || connError || conflict) && (
           <div className="flex gap-3 mt-2 text-[11px] flex-wrap items-center font-mono">
             {conflictsCount > 0 && <span className="text-f-accent font-semibold">⚠ {conflictsCount}× smena v deň, keď niekto nemôže</span>}
@@ -1701,6 +1713,9 @@ export default function App() {
       {panel === "users" && caps.users && <UsersPanel crew={crew} onClose={() => setPanel(null)} onRegisterCloseGuard={registerPanelCloseGuard} />}
       {panel === "kontakty" && caps.users && (
         <KontaktyPanel kontakty={kontakty} setKontakty={wrappedSetKontakty} crew={crew} onClose={() => setPanel(null)} />
+      )}
+      {panel === "hlasky" && caps.hlasky && (
+        <HlaskyPanel hlasky={hlasky} setHlasky={wrappedSetHlasky} me={me} onClose={() => setPanel(null)} />
       )}
       {panel === "crew" && caps.crew && <CrewPanel crew={crew} setCrew={wrappedSetCrew} moveCrew={moveCrew} addLog={addLog} onClose={() => setPanel(null)} />}
       {panel === "vykazy" && (

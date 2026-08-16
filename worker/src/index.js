@@ -93,7 +93,11 @@ const STATE_KEY = "state_v1";
 //              toto NIE JE prílohový audit záznam — je to bežné nastavenie, dá sa
 //              kedykoľvek prepísať (napr. keď sa deň preplánuje), preto sa tu
 //              nekontroluje nemennosť histórie, iba tvar (viď ocistiDenneRoly).
-const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], uzavierky: [], denneRoly: [], log: [], pendingHook: [], version: 0 };
+// "hlasky" = krátke vtipné hlášky z natáčania (sekcia 8 finálneho briefu), ktoré sa
+//            na hlavnej stránke náhodne zobrazujú pre pobavenie. Zatiaľ ich píše iba
+//            admin (caps.hlasky, viď auth.js) — model je pripravený tak, aby sa to
+//            dalo neskôr rozšíriť aj na iné role bez zmeny tvaru dát.
+const EMPTY_STATE = { crew: [], cells: {}, nad: {}, sadzby: {}, chaty: {}, reporty: {}, dispo: {}, pendingDispo: [], kontakty: [], uzavierky: [], denneRoly: [], hlasky: [], log: [], pendingHook: [], version: 0 };
 
 // Reportov môže byť za celú sezónu veľa, ale nie neobmedzene — strop je poistka,
 // aby jeden pokazený bridge nezaplnil KV.
@@ -703,6 +707,39 @@ export function ocistiDenneRoly(arr) {
   return [...podla.values()];
 }
 
+const MAX_HLASOK = 500; // koľko hlášok z natáčania si server pamätá (sekcia 8 briefu)
+const MAX_HLASKA_TEXT = 300; // "krátke vtipné hlášky" — schválne dosť krátke, nie je to reportový text
+const MAX_HLASKA_AUTOR = 120;
+
+/* Hlášky z natáčania (sekcia 8 finálneho briefu) smú mať iba tieto polia — rovnaký
+   dôvod ako pri ostatných ocisti* funkciách vyššie (appka posiela celý stav naraz,
+   server neverí tvaru, ktorý príde od klienta). Zoznam sa iba dopĺňa/maže cez
+   appku (nie je to append-only audit ako uzávierky/história), takže sa tu strop
+   uplatňuje jednoducho zhora — pri prekročení sa zahodia najstaršie. */
+function ocistiHlasku(h) {
+  if (!h || typeof h !== "object") return null;
+  // Pozor: NIE String(h.text) — to by pri poškodenom tvare (napr. h.text = objekt)
+  // ticho vyrobilo text "[object Object]" a taký nezmysel by sa potom naozaj
+  // niekomu zobrazil na hlavnej stránke ako "vtipná hláška". Pri zlom type sa
+  // celá hláška radšej zahodí (typeof text === "string" == jediný povolený tvar).
+  if (typeof h.text !== "string") return null;
+  const text = h.text.slice(0, MAX_HLASKA_TEXT).trim();
+  if (!text) return null;
+  return {
+    id: String(h.id || "hl_" + Math.random().toString(36).slice(2, 10)).slice(0, 60),
+    text,
+    autor: typeof h.autor === "string" ? h.autor.slice(0, MAX_HLASKA_AUTOR) : "",
+    ts: String(h.ts || new Date().toISOString()).slice(0, 40),
+  };
+}
+
+function ocistiHlasky(arr) {
+  const out = arr.map(ocistiHlasku).filter(Boolean).slice(0, MAX_HLASOK * 2);
+  if (out.length <= MAX_HLASOK) return out;
+  // najstaršie preč (podľa "ts", rovnaký princíp ako pri ocistiReporty vyššie)
+  return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)).slice(out.length - MAX_HLASOK);
+}
+
 async function handlePostData(request, env) {
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "unauthenticated" }, 401, env);
@@ -737,6 +774,7 @@ async function handlePostDataZamknute(body, user, env) {
     kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
     uzavierky: Array.isArray(body.uzavierky) ? ocistiUzavierky(body.uzavierky) : current.uzavierky,
     denneRoly: Array.isArray(body.denneRoly) ? ocistiDenneRoly(body.denneRoly) : current.denneRoly,
+    hlasky: Array.isArray(body.hlasky) ? ocistiHlasky(body.hlasky) : current.hlasky,
     log: Array.isArray(body.log) ? body.log.slice(0, LOG_MAX) : current.log,
     pendingHook: Array.isArray(body.pendingHook) ? body.pendingHook.slice(0, 200) : current.pendingHook,
     version: current.version + 1,

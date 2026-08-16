@@ -70,13 +70,18 @@ const ROLE_SECTIONS = {
 //               (nová "denná" rola, sekcia 4 briefu — pozor, NIE je to to isté ako
 //               trvalá rola v ROLE_KEYS; je to iba priradenie na jeden deň, appka
 //               si ho pamätá v samostatnom poli "denneRoly", viď index.js).
+// "hlasky" = písať hlášky z natáčania (sekcia 8 finálneho briefu — "Zatiaľ ich píše
+//            len admin. Priprav model tak, aby sa dali neskôr otvoriť aj ostatným").
+//            Preto je to samostatné právo (nie natvrdo "len rola admin" v kóde) —
+//            keď sa to raz má otvoriť aj iným, stačí tu pri príslušnej role prepnúť
+//            na true, nemusí sa nič prepisovať v checkStateChange ani v appke.
 const ROLE_CAPS = {
-  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
-  kamera_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false, denneRoly: false },
-  rezia_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true, denneRoly: true },
-  produkcia_admin: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true },
-  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
-  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false },
+  admin: { crew: true, nad: true, pending: true, ownOff: true, users: true, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: true },
+  kamera_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: false, denneRoly: false, hlasky: false },
+  rezia_admin: { crew: false, nad: false, pending: true, ownOff: true, users: false, sadzby: false, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: false },
+  produkcia_admin: { crew: false, nad: true, pending: false, ownOff: true, users: false, sadzby: true, vykazVsetkych: true, reporty: true, denneRoly: true, hlasky: false },
+  stab: { crew: false, nad: false, pending: false, ownOff: true, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false, hlasky: false },
+  viewer: { crew: false, nad: false, pending: false, ownOff: false, users: false, sadzby: false, vykazVsetkych: false, reporty: false, denneRoly: false, hlasky: false },
 };
 
 export function roleCaps(role) {
@@ -865,6 +870,12 @@ export function checkStateChange(user, current, next) {
   // dnes rozhoduje o réžii a Story), kamera nie.
   if (JSON.stringify(current.denneRoly || []) !== JSON.stringify(next.denneRoly || [])) {
     if (!caps.denneRoly) return { ok: false, error: "Denné role (režisér, Story produceri) smie priraďovať iba admin, réžia alebo produkcia." };
+  }
+
+  // hlášky z natáčania (sekcia 8 briefu) — zatiaľ ich píše iba admin (caps.hlasky),
+  // viď komentár pri ROLE_CAPS vyššie.
+  if (JSON.stringify(current.hlasky || []) !== JSON.stringify(next.hlasky || [])) {
+    if (!caps.hlasky) return { ok: false, error: "Hlášky z natáčania zatiaľ smie pridávať iba admin." };
   }
 
   // zmeny v jednotlivých bunkách rozpisu
