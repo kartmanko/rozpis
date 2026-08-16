@@ -88,17 +88,25 @@ export default function DispoBuilderPanel({ dispo, crew, cellOf, denneRoly, canE
   const upravRiadok = (i, p) => patch({ harmonogram: blok.harmonogram.map((h, idx) => (idx === i ? { ...h, ...p } : h)) });
   const zmazRiadok = (i) => patch({ harmonogram: blok.harmonogram.filter((_, idx) => idx !== i) });
 
+  // Keď človek vypadne zo VŠETKÝCH skupín (zmazaním skupiny alebo odškrtnutím),
+  // musí sa mu zmazať aj "zvýraznenie" — inak by ostalo ticho ležať v blok.zvyraznene
+  // (tlačidlo naň totiž zobrazuje iba ludiaVoBloku nižšie, takže by sa nedalo
+  // vidieť ani zrušiť) a keby sa ten istý človek neskôr do niektorej skupiny
+  // pridal znova, ukázal by sa ako už zvýraznený, hoci to nikto v tejto chvíli
+  // nevybral — a presne taký by šiel aj do textu mailu.
+  const oreza = (noveSkupiny) => {
+    const ziviId = new Set(noveSkupiny.flatMap((s) => s.ludia));
+    return { skupiny: noveSkupiny, zvyraznene: blok.zvyraznene.filter((id) => ziviId.has(id)) };
+  };
   const pridajSkupinu = () => patch({ skupiny: [...blok.skupiny, { nazov: "", ludia: [] }] });
-  const zmazSkupinu = (i) => patch({ skupiny: blok.skupiny.filter((_, idx) => idx !== i) });
+  const zmazSkupinu = (i) => patch(oreza(blok.skupiny.filter((_, idx) => idx !== i)));
   const nazovSkupiny = (i, nazov) => patch({ skupiny: blok.skupiny.map((s, idx) => (idx === i ? { ...s, nazov } : s)) });
   const prepniVSkupine = (i, crewId) =>
-    patch({
-      skupiny: blok.skupiny.map((s, idx) => {
-        if (idx !== i) return s;
-        const ma = s.ludia.includes(crewId);
-        return { ...s, ludia: ma ? s.ludia.filter((id) => id !== crewId) : [...s.ludia, crewId] };
-      }),
-    });
+    patch(oreza(blok.skupiny.map((s, idx) => {
+      if (idx !== i) return s;
+      const ma = s.ludia.includes(crewId);
+      return { ...s, ludia: ma ? s.ludia.filter((id) => id !== crewId) : [...s.ludia, crewId] };
+    })));
 
   const prepniZvyraznenie = (crewId) =>
     patch({ zvyraznene: blok.zvyraznene.includes(crewId) ? blok.zvyraznene.filter((id) => id !== crewId) : [...blok.zvyraznene, crewId] });
