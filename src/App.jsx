@@ -33,7 +33,7 @@ import ReportyPanel from "./components/ReportyPanel";
 import DispoPanel from "./components/DispoPanel";
 import DispoBuilderPanel from "./components/DispoBuilderPanel";
 import KontaktyPanel from "./components/KontaktyPanel";
-import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby, mesiacUzavrety } from "./vykazy";
+import { sadzbaProfesie, DEFAULT_SADZBY, hodinyNadcasu, hod, vykazOsoby, mesiacUzavrety, orezNadcasVUzavretych } from "./vykazy";
 import { pouziNavrh } from "./tabulkaImport";
 import { skusZlucit, zmeneneKluce, rovnake } from "./zlucenie";
 import { ulozNeulozene, nacitajNeulozene, zahodNeulozene } from "./neulozene";
@@ -557,7 +557,12 @@ export default function App() {
             // kľúče, ktoré medzitým zmenil TEN CUDZÍ zápis — viď komentár pri
             // commitZlucenieCells, prečo sa na nich živý klik neaplikuje.
             const cudzieZmenyBuniek = new Set(zmeneneKluce(zakladRef.current.cells, s.cells));
-            commitZlucenieCells(zlucene.cells, odoslane.cells, cudzieZmenyBuniek);
+            // skusZlucit o uzávierkach nevie — keby niekto medzitým zavrel mesiac,
+            // do ktorého mieri môj nahlásený nadčas, zlúčenie by ho preniesol ďalej
+            // ako je, aj keď ho server pri ďalšom uložení odmietne (viď
+            // orezNadcasVUzavretych vo vykazy.js).
+            const zluceneCells = orezNadcasVUzavretych(zlucene.cells, s.cells, s.uzavierky);
+            commitZlucenieCells(zluceneCells, odoslane.cells, cudzieZmenyBuniek);
             setLog(zlucene.log);
             setVersion(s.version);
             zakladRef.current = {
@@ -1418,7 +1423,10 @@ export default function App() {
     // krok späť nesmie vedieť skočiť spred tohto zlúčenia. "teraz.cells" je tu
     // navyše aj poistkou pre commitZlucenieCells (nič nemení, tento krok je
     // synchrónny — ale nech sú obe volania rovnako opatrné).
-    commitZlucenieCells(zlucene.cells, teraz.cells);
+    // aj tu platí rovnaký dôvod ako pri strete verzií vyššie: odložený návrh mohol
+    // vzniknúť predtým, než niekto zavrel mesiac, do ktorého mieri jeho nadčas.
+    const zluceneCells = orezNadcasVUzavretych(zlucene.cells, teraz.cells, teraz.uzavierky);
+    commitZlucenieCells(zluceneCells, teraz.cells);
     setLog(zlucene.log);
     setDirty(true);
     setOdlozene(null);

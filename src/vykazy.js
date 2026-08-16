@@ -92,6 +92,32 @@ export function najdiAktivnuUzavierku(uzavierky, mesiac) {
   return (uzavierky || []).find((u) => u.mesiac === mesiac && !u.zrusene) || null;
 }
 
+/* Rovnaká poistka ako mesiacUzavrety vyššie, len pre zlúčenie po strete verzií
+   (viď skusZlucit v zlucenie.js a jeho volanie v App.jsx): skusZlucit nevie o
+   uzávierkach nič — pokojne zlúči môj nadčas do bunky, aj keď mesiac, do
+   ktorého mieri, PRÁVE v tejto chvíli zavrel niekto iný (zmena "uzavierky" sa
+   nedotýka "cells", takže sa to zlúčeniu nejaví ako stret o tú bunku). Server
+   by taký nadčas pri ďalšom uložení odmietol (nadcasVUzavretomMesiaci, platí
+   aj pre admina) a bez tejto poistky by appka odvtedy natrvalo zasekla
+   ukladanie — presne ten istý mechanizmus, akému predišla oprava 5f9c1d2, len
+   cez zlúčenie namiesto priameho klikania. Nadčas v takých bunkách sa vráti na
+   hodnotu, akú má práve teraz server (ostatné polia bunky — smena/duel/
+   poznámka — zostanú zlúčené, tie uzávierka neobmedzuje). */
+export function orezNadcasVUzavretych(cells, serverCells, uzavierky) {
+  let out = null;
+  for (const k of Object.keys(cells || {})) {
+    if (!mesiacUzavrety(uzavierky, k.split("|")[0])) continue;
+    const moja = cells[k];
+    const serverova = (serverCells || {})[k];
+    const mojNadcas = Number(moja?.nadcas || 0);
+    const serverNadcas = Number(serverova?.nadcas || 0);
+    if (mojNadcas === serverNadcas) continue;
+    if (!out) out = { ...cells };
+    out[k] = { ...moja, nadcas: serverNadcas };
+  }
+  return out || cells;
+}
+
 /** Prerobí jeden zmrazený záznam z uzávierky (App.jsx, uzavriMesiac ->
     zaznam.vyplatene) na rovnaký tvar, aký vracia vykazOsoby — aby ho vedel
     zobraziť rovnaký kód ako živý výkaz (VykazyPanel).
