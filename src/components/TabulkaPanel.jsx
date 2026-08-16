@@ -82,6 +82,21 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
   const naZapis = prepisovat ? [...nove, ...zmenene] : nove;
   const nepriradene = rozbor ? rozbor.osoby.filter((o) => !aktualnePriradenie[o.c]).length : 0;
 
+  /* Keď sú dva rôzne stĺpce priradené tomu istému človeku (zdvojený stĺpec v
+     zdrojovej tabuľke, alebo si to admin pomýlil pri ručnom priraďovaní), obe
+     bunky pre ten istý deň mieria na to isté miesto v "cells" — druhá by ticho
+     prepísala prvú a "Vyplní sa N buniek" by navyše počítalo obe, hoci napokon
+     zostane iba jedna. Bez tohto varovania by o tom admin nemal ako vedieť. */
+  const duplicitneOsoby = useMemo(() => {
+    if (!rozbor) return [];
+    const podlaId = {};
+    rozbor.osoby.forEach((o) => {
+      const id = aktualnePriradenie[o.c];
+      if (id) (podlaId[id] || (podlaId[id] = [])).push(o.hlavicka);
+    });
+    return Object.entries(podlaId).filter(([, hlavicky]) => hlavicky.length > 1);
+  }, [rozbor, aktualnePriradenie]);
+
   const menoOsoby = (id) => crew.find((c) => c.id === id)?.name || "?";
 
   const zapis = () => {
@@ -166,6 +181,12 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
           {rozbor.osoby.length > 0 && (
             <div className="space-y-1.5">
               {nepriradene > 0 && <div className="text-xs text-f-r">Pri {nepriradene} stĺpcoch neviem, o koho ide — vyber osobu alebo nechaj nepriradené (preskočí sa).</div>}
+              {duplicitneOsoby.length > 0 && (
+                <div className="text-xs text-f-r">
+                  Viac stĺpcov je priradených tej istej osobe ({duplicitneOsoby.map(([, hlavicky]) => hlavicky.join(" + ")).join(", ")}) —
+                  oprav priradenie nižšie, inak by jeden stĺpec ticho prepísal druhý.
+                </div>
+              )}
               {rozbor.osoby.map((o) => (
                 <div key={o.c} className="flex gap-2 items-center flex-wrap border border-f-border rounded-lg px-2 py-1.5 bg-f-panel2">
                   <div className="text-xs grow min-w-32 text-f-text font-semibold">{o.hlavicka}</div>
@@ -212,7 +233,8 @@ export default function TabulkaPanel({ crew, cells, dovolene, onZapis, onClose, 
 
               <button
                 onClick={zapis}
-                disabled={!naZapis.length}
+                disabled={!naZapis.length || duplicitneOsoby.length > 0}
+                title={duplicitneOsoby.length > 0 ? "Najprv oprav priradenie — dva stĺpce mieria na tú istú osobu." : ""}
                 className="px-3 py-1.5 rounded-lg text-sm font-bold bg-f-a text-f-ink hover:brightness-110 transition-colors disabled:opacity-40"
               >
                 Zapísať do rozpisu ({naZapis.length})
