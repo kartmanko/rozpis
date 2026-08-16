@@ -388,6 +388,97 @@ function ocistiSadzby(sadzby) {
   return out;
 }
 
+const MAX_CHAT_POLE = 120; // rovnaká dĺžka ako pri vzniku skupiny, viď spracujHookSpravu
+
+/* WhatsApp skupina (Fáza 4) smie mať iba tieto polia — rovnaký dôvod ako pri
+   ocistiBunky vyššie. Zapínať/vypínať a meniť "druh" smie ktokoľvek s
+   caps.pending (kamera_admin/rezia_admin, nie iba hlavný admin) cez
+   generický POST /data, ktorý doteraz tvar vôbec nekontroloval —
+   ChatyPanel.jsx vykresľuje {c.nazov || "(bez názvu)"} priamo ako React child
+   bez kontroly typu, takže nereťazcová (pravdivá) hodnota appku pri otvorení
+   panela zhodí presne ako pri dispo/sadzby vyššie (jeden spoločný
+   ErrorBoundary v main.jsx). */
+function ocistiChat(id, c) {
+  if (!c || typeof c !== "object") return null;
+  return {
+    id,
+    nazov: String(c.nazov || "").slice(0, MAX_CHAT_POLE) || "(bez názvu)",
+    povoleny: !!c.povoleny,
+    // "rozhodnute" = niekto sa k skupine vedome vyjadril (viď ChatyPanel.jsx) —
+    // kým sa nikto nevyjadrí, skupina svieti v menu ako nová
+    rozhodnute: !!c.rozhodnute,
+    druh: c.druh === "report" ? "report" : "dostupnost",
+    prvyKrat: String(c.prvyKrat || "").slice(0, 40),
+    poslednaSprava: String(c.poslednaSprava || "").slice(0, 40),
+  };
+}
+
+/* "chaty" (mapa id -> skupina) smie mať iba platné kľúče a tvar podľa
+   ocistiChat vyššie, so stropom MAX_CHATOV — rovnaký strop, akým sa bránil
+   doteraz iba prísun z WhatsApp bridgeu (spracujHookSpravu), nie generický
+   POST /data (ten mohol strop obísť úplne). */
+function ocistiChaty(mapa) {
+  const out = {};
+  let n = 0;
+  for (const [id, c] of Object.entries(mapa)) {
+    const kluc = String(id || "").slice(0, 120);
+    if (!kluc) continue;
+    const cisty = ocistiChat(kluc, c);
+    if (!cisty) continue;
+    if (++n > MAX_CHATOV) break;
+    out[kluc] = cisty;
+  }
+  return out;
+}
+
+const MAX_REPORT_POLE_KRATKE = 120; // autor/telefon/chatId/chatName/msgId
+const MAX_REPORT_TEXT = 8000; // rovnaká dĺžka ako pri vzniku, viď spracujHookSpravu
+
+/* Denný report (Fáza 4) smie mať iba tieto polia — rovnaký dôvod ako pri
+   ocistiBunky vyššie. Meniť ho (iba dátum/zdrojDatumu, nikdy text — appka do
+   textu nikdy nesiaha, viď setReportDatum v App.jsx) smie ktokoľvek s
+   caps.reporty (rezia_admin/produkcia_admin, nie iba hlavný admin) cez
+   generický POST /data. ReportyPanel.jsx vykresľuje {r.text} aj
+   {r.autor || "neznámy"} priamo ako React child bez kontroly typu — rovnaké
+   riziko pádu celej appky ako pri dispo/sadzby/chaty vyššie. */
+function ocistiReport(id, r) {
+  if (!r || typeof r !== "object") return null;
+  const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(r.datum || "")) ? r.datum : "";
+  if (!datum) return null;
+  return {
+    id,
+    datum,
+    zdrojDatumu: ["text", "sprava", "rucne"].includes(r.zdrojDatumu) ? r.zdrojDatumu : "text",
+    prislo: String(r.prislo || "").slice(0, 40),
+    autor: String(r.autor || "").slice(0, MAX_REPORT_POLE_KRATKE),
+    telefon: String(r.telefon || "").slice(0, MAX_REPORT_POLE_KRATKE),
+    chatId: String(r.chatId || "").slice(0, MAX_REPORT_POLE_KRATKE),
+    chatName: String(r.chatName || "").slice(0, MAX_REPORT_POLE_KRATKE),
+    msgId: String(r.msgId || "").slice(0, MAX_REPORT_POLE_KRATKE),
+    text: String(r.text || "").slice(0, MAX_REPORT_TEXT),
+  };
+}
+
+/* "reporty" (mapa id -> report) smie mať iba platné kľúče a tvar podľa
+   ocistiReport vyššie, so stropom MAX_REPORTOV — rovnaký vzor orezania
+   (najstaršie podľa "prislo" preč), aký doteraz platil iba pre prísun z
+   WhatsApp bridgeu (handlePostHook), nie pre generický POST /data. */
+function ocistiReporty(mapa) {
+  const out = {};
+  for (const [id, r] of Object.entries(mapa)) {
+    const kluc = String(id || "").slice(0, 120);
+    if (!kluc) continue;
+    const cisty = ocistiReport(kluc, r);
+    if (!cisty) continue;
+    out[kluc] = cisty;
+  }
+  const kluceZoradene = Object.keys(out).sort((a, b) => String(out[a].prislo).localeCompare(String(out[b].prislo)));
+  if (kluceZoradene.length > MAX_REPORTOV) {
+    kluceZoradene.slice(0, kluceZoradene.length - MAX_REPORTOV).forEach((k) => delete out[k]);
+  }
+  return out;
+}
+
 /* Kontakt smie mať iba tieto polia — rovnaký dôvod ako pri ocistiBunky vyššie.
    "interny" prepája na crewId (človek zo štábu); externí (Jimmy Jib, ShowService…)
    crewId nemajú, sú to iba meno + kontakt na napovedanie a mail. */
@@ -565,8 +656,8 @@ async function handlePostDataZamknute(body, user, env) {
     cells: body.cells && typeof body.cells === "object" ? ocistiBunky(body.cells) : current.cells,
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
     sadzby: body.sadzby && typeof body.sadzby === "object" ? ocistiSadzby(body.sadzby) : current.sadzby,
-    chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
-    reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
+    chaty: body.chaty && typeof body.chaty === "object" ? ocistiChaty(body.chaty) : current.chaty,
+    reporty: body.reporty && typeof body.reporty === "object" ? ocistiReporty(body.reporty) : current.reporty,
     dispo: body.dispo && typeof body.dispo === "object" ? ocistiDispo(body.dispo) : current.dispo,
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
     kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
