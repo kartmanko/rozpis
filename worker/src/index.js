@@ -527,7 +527,7 @@ async function handlePostDataZamknute(body, user, env) {
     sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
     chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
     reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
-    dispo: body.dispo && typeof body.dispo === "object" ? body.dispo : current.dispo,
+    dispo: body.dispo && typeof body.dispo === "object" ? ocistiDispo(body.dispo) : current.dispo,
     pendingDispo: Array.isArray(body.pendingDispo) ? body.pendingDispo.slice(0, MAX_PENDING_DISPO) : current.pendingDispo,
     kontakty: Array.isArray(body.kontakty) ? ocistiKontakty(body.kontakty) : current.kontakty,
     uzavierky: Array.isArray(body.uzavierky) ? ocistiUzavierky(body.uzavierky) : current.uzavierky,
@@ -1649,6 +1649,65 @@ function ocistiBlokDispo(body) {
     zvyraznene,
     dalsiPrijemcovia,
   };
+}
+
+const MAX_DISPO_DNI = 400; // koľko dní so zapísanou dispozíciou si server pamätá, s rezervou nad dĺžku sezóny
+
+/* Kontakt v dispo bloku ("Kontakty na produkciu" v DayDetail.jsx) — rovnaký tvar,
+   aký si appka odloží pri AI-rozobratí mailu (spracujDispoMail nižšie), len tu
+   ho treba rovnako orezať aj keď prichádza generickým POST /data (z potvrdenia
+   mailu alebo priamo z buildera v appke — obe idú tou istou cestou). */
+function ocistiDispoKontakt(k) {
+  if (!k || typeof k !== "object") return null;
+  const meno = String(k.meno || "").slice(0, 80);
+  const telefon = String(k.telefon || "").slice(0, 40);
+  if (!meno || !telefon) return null;
+  return { meno, rola: String(k.rola || "").slice(0, 80), telefon };
+}
+
+/* Jeden deň dispozície (Fáza 5 / sekcia 2 briefu), tak ako ho appka ukladá do
+   "dispo[iso]" cez POST /data — buď z potvrdenia mailu (potvrdDispo v App.jsx:
+   miesto/pocasie/harmonogram/poznamky/kontakty/predmet/potvrdene), alebo z
+   buildera priamo v appke (ulozDispoBlok: navyše skupiny/zvyraznene/
+   dalsiPrijemcovia). Rovnaký dôvod ako pri ocistiBunky/ocistiKontakty vyššie:
+   appka posiela celý stav naraz a menší admin (kamera_admin/rezia_admin —
+   caps.pending, nie iba hlavný admin) doň smie zapisovať, takže bez tejto
+   poistky by vedel do "dispo" vložiť čokoľvek vrátane necelého tvaru (napr.
+   harmonogram ako reťazec namiesto poľa). DayDetail.jsx naň spolieha bez
+   kontroly typu (.map priamo) — a keďže appka je celá pod jedným
+   ErrorBoundary (main.jsx), spadne tým NAĎALEJ CELÁ appka pre KAŽDÉHO, kto na
+   ten deň klikne, nielen ten panel a nielen ten, kto to poslal. */
+function ocistiDenneDispo(iso, blok) {
+  if (!blok || typeof blok !== "object") return null;
+  const zaklad = ocistiBlokDispo({ ...blok, datum: iso });
+  const kontakty = (Array.isArray(blok.kontakty) ? blok.kontakty : []).slice(0, 20).map(ocistiDispoKontakt).filter(Boolean);
+  const out = {
+    ...zaklad,
+    kontakty,
+    predmet: String(blok.predmet || "").slice(0, 300),
+    potvrdene: String(blok.potvrdene || "").slice(0, 40),
+  };
+  // prázdny deň (nič sa nezapísalo) sa radšej vôbec neuloží, nech sa appka
+  // netvári, že tam niekto niečo potvrdil
+  const prazdny = !out.miesto && !out.pocasie && !out.poznamky && !out.harmonogram.length &&
+    !out.kontakty.length && !out.skupiny.length && !out.zvyraznene.length &&
+    !out.dalsiPrijemcovia.length && !out.predmet;
+  return prazdny ? null : out;
+}
+
+/* "dispo" (mapa iso -> deň) smie mať iba platné dátumové kľúče a tvar podľa
+   ocistiDenneDispo vyššie — rovnaký dôvod ako pri ostatných ocisti* funkciách. */
+function ocistiDispo(mapa) {
+  const out = {};
+  let n = 0;
+  for (const [iso, blok] of Object.entries(mapa)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) continue;
+    const cisty = ocistiDenneDispo(iso, blok);
+    if (!cisty) continue;
+    if (++n > MAX_DISPO_DNI) break;
+    out[iso] = cisty;
+  }
+  return out;
 }
 
 /** Meno človeka zo štábu podľa crewId — do mailu aj do zoznamu príjemcov. */
