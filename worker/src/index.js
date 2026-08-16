@@ -348,6 +348,46 @@ function ocistiBunky(cells) {
   return out;
 }
 
+const MAX_SADZBA_EUR = 100000; // horná hranica jednej dennej sadzby (€) — proti absurdným/nekonečným hodnotám
+// musí sedieť s ROLES v src/constants.js (odtiaľ appka profesie vôbec ponúka)
+const SADZBA_PROFESIE = ["kamera", "rezia", "story", "logger", "produkcia"];
+
+const cisloVRozsahu = (n, max) => {
+  const c = Number(n);
+  return Number.isFinite(c) ? Math.max(0, Math.min(max, c)) : 0;
+};
+
+/* "sadzby" (koľko je deň, Fáza 2) smie mať iba tieto profesie a v nich iba
+   tieto polia — rovnaký dôvod ako pri ocistiBunky/ocistiKontakty vyššie. Meniť
+   ich smie aj produkcia_admin (caps.sadzby), nie iba hlavný admin, a priamo z
+   nich sa počíta výplata (src/vykazy.js) aj zobrazuje v readonly paneli
+   Sadzby — SadzbyPanel.jsx vykresľuje {s.nadcasPct} priamo ako React child bez
+   kontroly typu, takže nečíselná hodnota (napr. objekt) appku pri otvorení
+   panela zhodí ("Objects are not valid as a React child") — a keďže appka je
+   celá pod jedným ErrorBoundary (main.jsx), spadne tým CELÁ appka pre KAŽDÉHO,
+   kto panel Sadzby otvorí čo i len na čítanie (bežný člen štábu), nielen pre
+   toho, kto poškodenú hodnotu poslal.
+
+   Appka si pri jednej profesii pamätá iba POLIA, ktoré sa líšia od
+   DEFAULT_SADZBY (viď setSadzba v App.jsx) — chýbajúce pole teda nie je chyba,
+   znamená "zostáva na predvolenej hodnote". Sanitizácia preto musí zachovať
+   čiastočný tvar (iba poslané polia), nie povinne dopĺňať všetky štyri — inak
+   by sanitizácia sama ticho vynulovala polia, ktoré nikto nemenil. */
+function ocistiSadzby(sadzby) {
+  const out = {};
+  for (const profesia of SADZBA_PROFESIE) {
+    const s = sadzby?.[profesia];
+    if (!s || typeof s !== "object") continue;
+    const cisty = {};
+    for (const pole of ["den", "duel", "denDuel", "nadcasPct"]) {
+      if (!(pole in s)) continue;
+      cisty[pole] = cisloVRozsahu(s[pole], pole === "nadcasPct" ? 100 : MAX_SADZBA_EUR);
+    }
+    if (Object.keys(cisty).length) out[profesia] = cisty;
+  }
+  return out;
+}
+
 /* Kontakt smie mať iba tieto polia — rovnaký dôvod ako pri ocistiBunky vyššie.
    "interny" prepája na crewId (človek zo štábu); externí (Jimmy Jib, ShowService…)
    crewId nemajú, sú to iba meno + kontakt na napovedanie a mail. */
@@ -524,7 +564,7 @@ async function handlePostDataZamknute(body, user, env) {
     crew: Array.isArray(body.crew) ? body.crew : current.crew,
     cells: body.cells && typeof body.cells === "object" ? ocistiBunky(body.cells) : current.cells,
     nad: body.nad && typeof body.nad === "object" ? body.nad : current.nad,
-    sadzby: body.sadzby && typeof body.sadzby === "object" ? body.sadzby : current.sadzby,
+    sadzby: body.sadzby && typeof body.sadzby === "object" ? ocistiSadzby(body.sadzby) : current.sadzby,
     chaty: body.chaty && typeof body.chaty === "object" ? body.chaty : current.chaty,
     reporty: body.reporty && typeof body.reporty === "object" ? body.reporty : current.reporty,
     dispo: body.dispo && typeof body.dispo === "object" ? ocistiDispo(body.dispo) : current.dispo,
